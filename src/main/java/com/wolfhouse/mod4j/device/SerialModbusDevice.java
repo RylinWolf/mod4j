@@ -19,43 +19,61 @@ public class SerialModbusDevice implements ModbusDevice {
     /**
      * 默认超时时间 2000ms
      */
-    private static final int DEFAULT_TIMEOUT = 2000;
-
-    /**
-     * 串口名称
-     */
-    private String portName;
-
-    /**
-     * 波特率
-     */
-    private int baudRate;
-
-    /**
-     * 超时时间
-     */
-    private int timeout = DEFAULT_TIMEOUT;
-
-    /**
-     * jSerialComm 串口对象
-     */
-    private SerialPort serialPort;
-
+    private static final int          DEFAULT_TIMEOUT = 2000;
     /**
      * 串口输入流
      */
-    private InputStream inputStream;
-
+    protected            InputStream  inputStream;
     /**
      * 串口输出流
      */
-    private OutputStream outputStream;
+    protected            OutputStream outputStream;
+    /**
+     * 串口名称
+     */
+    private              String       portName;
+    /**
+     * 波特率
+     */
+    private              int          baudRate;
+    /**
+     * 超时时间
+     */
+    private              int          timeout         = DEFAULT_TIMEOUT;
+    /**
+     * jSerialComm 串口对象
+     */
+    private              SerialPort   serialPort;
+
+    /**
+     * 是否开启心跳检测
+     */
+    private boolean heartbeatEnabled = true;
+
+    /**
+     * 默认构造函数
+     */
+    public SerialModbusDevice() {
+    }
+
+    /**
+     * 用于测试的构造函数，允许注入流
+     *
+     * @param inputStream  输入流
+     * @param outputStream 输出流
+     */
+    public SerialModbusDevice(InputStream inputStream, OutputStream outputStream) {
+        this.inputStream  = inputStream;
+        this.outputStream = outputStream;
+        this.portName     = "MockPort";
+    }
 
     @Override
-    public synchronized void connect(Object[] params) throws ModbusException {
+    public synchronized void connect(DeviceConfig config) throws ModbusException {
         // 解析参数：params[0] 为端口名, params[1] 为波特率
-        this.portName = (String) params[0];
-        this.baudRate = (int) params[1];
+        this.portName = (String) config.params()[0];
+        this.baudRate = (int) config.params()[1];
+        this.timeout  = config.timeout();
         System.out.println("[mod4j] 正在连接串口: " + portName + " 波特率: " + baudRate);
 
         this.serialPort = SerialPort.getCommPort(portName);
@@ -74,34 +92,53 @@ public class SerialModbusDevice implements ModbusDevice {
     @Override
     public synchronized void disconnect() throws ModbusException {
         System.out.println("[mod4j] 断开串口连接: " + getDeviceId());
+        ModbusException firstException = null;
+
         try {
             if (inputStream != null) {
                 inputStream.close();
             }
+        } catch (IOException e) {
+            firstException = new ModbusIOException("[mod4j] 关闭串口输入流异常: " + e.getMessage(), e);
+        }
+
+        try {
             if (outputStream != null) {
                 outputStream.close();
             }
-            if (serialPort != null) {
-                serialPort.closePort();
-            }
         } catch (IOException e) {
-            throw new ModbusIOException("[mod4j] 断开串口连接异常: " + e.getMessage(), e);
-        } finally {
-            inputStream  = null;
-            outputStream = null;
-            serialPort   = null;
+            if (firstException == null) {
+                firstException = new ModbusIOException("[mod4j] 关闭串口输出流异常: " + e.getMessage(), e);
+            }
+        }
+
+        if (serialPort != null) {
+            serialPort.closePort();
+        }
+
+        inputStream  = null;
+        outputStream = null;
+        serialPort   = null;
+
+        if (firstException != null) {
+            throw firstException;
         }
     }
 
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new Object[]{portName, baudRate});
+        if (serialPort != null) {
+            connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.RTU, new Object[]{portName, baudRate}, timeout));
+        }
     }
 
     @Override
     public boolean isConnected() {
-        return serialPort != null && serialPort.isOpen();
+        if (serialPort != null) {
+            return serialPort.isOpen();
+        }
+        return inputStream != null && outputStream != null;
     }
 
     @Override
@@ -129,20 +166,51 @@ public class SerialModbusDevice implements ModbusDevice {
      * @throws ModbusException Modbus 异常
      */
     private byte[] readResponse() throws IOException, ModbusException {
-        // 对于 RTU，响应长度是不固定的，通常取决于请求的功能码
-        // 在没有完整协议解析器的情况下，我们使用一个缓冲区并利用超时机制
-        byte[] buffer    = new byte[256];
-        int    readCount = inputStream.read(buffer);
+        // 对于 RTU，响应长度是不固定的。
+        // 标准做法是先读取 3 个字节（从站 ID, 功能码, 异常码/字节数）来判断后续长度。
+        // 但为了简单且健壮，可以利用串口的超时机制和可用字节数进行读取。
 
-        if (readCount < 0) {
+        long startTime = System.currentTimeMillis();
+        // 预设一个足够大的缓冲区
+        byte[] buffer = new byte[512];
+        int    totalRead;
+
+        // 第一次读取，会阻塞直到超时或有数据
+        int read = inputStream.read(buffer, 0, buffer.length);
+        if (read < 0) {
             throw new ModbusIOException("[mod4j] 串口连接已关闭");
         }
-        if (readCount == 0) {
+        if (read == 0) {
             throw new ModbusTimeoutException("[mod4j] 串口通信超时，未收到响应");
         }
+        totalRead = read;
 
-        byte[] response = new byte[readCount];
-        System.arraycopy(buffer, 0, response, 0, readCount);
+        // 循环读取，直到没有更多数据或总时间超过 2 倍超时时间（防止死循环）
+        // 串口数据可能会分片到达
+        while (System.currentTimeMillis() - startTime < timeout * 2L) {
+            int available = inputStream.available();
+            if (available > 0) {
+                int nextRead = inputStream.read(buffer, totalRead, Math.min(available, buffer.length - totalRead));
+                if (nextRead > 0) {
+                    totalRead += nextRead;
+                }
+            } else {
+                // 如果当前没有可用数据，稍微等待一下看看是否还有后续
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                if (inputStream.available() == 0) {
+                    // 确实没有后续数据了，认为读取完成
+                    break;
+                }
+            }
+        }
+
+        byte[] response = new byte[totalRead];
+        System.arraycopy(buffer, 0, response, 0, totalRead);
         return response;
     }
 
@@ -163,6 +231,23 @@ public class SerialModbusDevice implements ModbusDevice {
     public byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
         byte[] command = ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
         return sendRawRequest(command);
+    }
+
+    @Override
+    public void ping() throws ModbusException {
+        // 使用 0x03 功能码读取地址 0 的 1 个寄存器作为心跳
+        // slaveId 默认为 1
+        sendRequest(1, 3, 0, 1);
+    }
+
+    @Override
+    public boolean isHeartbeatEnabled() {
+        return heartbeatEnabled;
+    }
+
+    @Override
+    public void setHeartbeatEnabled(boolean enabled) {
+        this.heartbeatEnabled = enabled;
     }
 
     /**

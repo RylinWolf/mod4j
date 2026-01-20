@@ -11,12 +11,10 @@ public interface ModbusDevice {
     /**
      * 连接设备
      *
-     * @param params 连接参数：
-     *               对于 RTU: [String portName, int baudRate]
-     *               对于 TCP: [String ip, int port]
+     * @param config 设备配置 {@link DeviceConfig}
      * @throws ModbusException 连接异常
      */
-    void connect(Object[] params) throws ModbusException;
+    void connect(DeviceConfig config) throws ModbusException;
 
     /**
      * 断开设备连接
@@ -80,4 +78,25 @@ public interface ModbusDevice {
      * @return 设备标识符字符串
      */
     String getDeviceId();
+
+    /**
+     * 向设备发送心跳包/探测包，以验证连接是否仍然有效
+     *
+     * @throws ModbusException 如果心跳检测失败（如超时或连接断开）
+     */
+    void ping() throws ModbusException;
+
+    /**
+     * 检查心跳检测是否开启
+     *
+     * @return true 表示已开启，false 表示已关闭
+     */
+    boolean isHeartbeatEnabled();
+
+    /**
+     * 设置是否开启心跳检测
+     *
+     * @param enabled true 为开启，false 为关闭
+     */
+    void setHeartbeatEnabled(boolean enabled);
 }

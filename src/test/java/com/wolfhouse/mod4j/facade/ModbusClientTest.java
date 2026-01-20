@@ -1,8 +1,11 @@
 package com.wolfhouse.mod4j.facade;
 
+import com.wolfhouse.mod4j.device.DeviceConfig;
 import com.wolfhouse.mod4j.device.ModbusDevice;
+import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
+import com.wolfhouse.mod4j.utils.ModbusRtuSimulator;
 import com.wolfhouse.mod4j.utils.ModbusTcpSimulator;
 import org.junit.After;
 import org.junit.Assert;
@@ -10,6 +13,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+import java.util.Arrays;
 
 /**
  * ModbusClient 测试类
@@ -33,12 +39,16 @@ public class ModbusClientTest {
         if (simulator != null) {
             simulator.stop();
         }
+        if (client != null) {
+            client.shutdown();
+        }
     }
 
     @Test
     public void testConnectAndRequest() throws ModbusException {
         // 使用模拟器进行真实连接测试
-        ModbusDevice device = client.connectDevice(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        ModbusDevice device = client.connectDevice(config);
         Assert.assertNotNull(device);
         Assert.assertTrue(device.isConnected());
 
@@ -60,11 +70,109 @@ public class ModbusClientTest {
     }
 
     @Test
-    public void testConnectAndGet() throws ModbusException {
-        ModbusDevice device = client.connectDevice(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
-        Assert.assertNotNull(device);
-        Assert.assertEquals(device, client.getDevice(device.getDeviceId()));
-        Assert.assertEquals(1000, device.getTimeout());
-        client.disconnectDevice(device.getDeviceId());
+    public void testBatchOperations() throws ModbusException {
+        DeviceConfig config1 = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        DeviceConfig config3 = new DeviceConfig(DeviceType.TCP, new Object[]{"localhost", testPort}, 2000);
+
+        client.batchConnectDevices(Arrays.asList(config1, config3));
+        Assert.assertEquals(2, client.getConnectedDevices().size());
+
+        client.batchDisconnectDevices(Arrays.asList(config1.getDeviceId(), config3.getDeviceId()));
+        Assert.assertEquals(0, client.getConnectedDevices().size());
+    }
+
+    @Test
+    public void testPersistentDevice() throws ModbusException, InterruptedException, IOException {
+        DeviceConfig config   = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        ModbusDevice device   = client.connectDevice(config);
+        String       deviceId = device.getDeviceId();
+
+        client.markAsPersistent(deviceId);
+        client.startHeartbeat(1);
+
+        // 关闭模拟器
+        simulator.stop();
+
+        // 等待心跳检测并重试
+        Thread.sleep(2000);
+
+        // 此时设备应该还在池中，因为它是常连接，正在无限重试
+        Assert.assertNotNull(client.getDevice(deviceId));
+
+        // 重新启动模拟器
+        simulator = new ModbusTcpSimulator(testPort);
+        simulator.start();
+
+        // 等待重连成功
+        Thread.sleep(7000);
+
+        Assert.assertTrue(client.getDevice(deviceId).isConnected());
+
+        client.unmarkAsPersistent(deviceId);
+        simulator.stop();
+
+        // 等待心跳移除
+        Thread.sleep(3000);
+        Assert.assertNull(client.getDevice(deviceId));
+    }
+
+    @Test
+    public void testHeartbeat() throws ModbusException, InterruptedException {
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        ModbusDevice device = client.connectDevice(config);
+        Assert.assertTrue(device.isConnected());
+
+        // 验证默认开启心跳
+        Assert.assertTrue(device.isHeartbeatEnabled());
+
+        // 关闭心跳检测
+        device.setHeartbeatEnabled(false);
+
+        // 启动心跳检测，间隔 1 秒
+        client.startHeartbeat(1);
+
+        // 关闭模拟器
+        simulator.stop();
+
+        // 等待一段时间，如果心跳检测还在运行且检测了该设备，它应该被移除。
+        // 但因为我们关闭了该设备的心跳检测，它应该还在池中（虽然物理连接已断）
+        Thread.sleep(3000);
+        Assert.assertNotNull(client.getDevice(device.getDeviceId()));
+
+        // 开启心跳检测
+        device.setHeartbeatEnabled(true);
+        // 再等待心跳检测
+        Thread.sleep(3000);
+        Assert.assertNull(client.getDevice(device.getDeviceId()));
+
+        client.stopHeartbeat();
+    }
+
+    @Test
+    public void testRtuSimulator() throws ModbusException, IOException {
+        PipedOutputStream clientOut = new PipedOutputStream();
+        PipedInputStream  simIn     = new PipedInputStream(clientOut);
+        PipedOutputStream simOut    = new PipedOutputStream();
+        PipedInputStream  clientIn  = new PipedInputStream(simOut);
+
+        ModbusRtuSimulator rtuSimulator = new ModbusRtuSimulator(simIn, simOut);
+        rtuSimulator.start();
+
+        try {
+            // 注入流到 SerialModbusDevice
+            SerialModbusDevice rtuDevice = new SerialModbusDevice(clientIn, clientOut);
+
+            // 发送请求 (SlaveID=1, Func=3, Addr=0, Qty=1)
+            byte[] response = rtuDevice.sendRequest(1, 3, 0, 1);
+
+            Assert.assertNotNull(response);
+            // SlaveID(1) + Func(1) + ByteCount(1) + Data(2) + CRC(2) = 7
+            Assert.assertEquals(7, response.length);
+            Assert.assertEquals(1, response[0]); // Slave ID
+            Assert.assertEquals(3, response[1]); // Function Code
+            Assert.assertEquals(2, response[2]); // Data Length
+        } finally {
+            rtuSimulator.stop();
+        }
     }
 }

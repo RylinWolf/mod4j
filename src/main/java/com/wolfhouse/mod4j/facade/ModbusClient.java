@@ -1,13 +1,14 @@
 package com.wolfhouse.mod4j.facade;
 
+import com.wolfhouse.mod4j.device.DeviceConfig;
 import com.wolfhouse.mod4j.device.ModbusDevice;
 import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.device.TcpModbusDevice;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * Modbus SDK 门面类，用于管理已连接设备并提供统一的通信入口
@@ -21,55 +22,143 @@ public class ModbusClient {
     private final Map<String, ModbusDevice> connectedDevices = new ConcurrentHashMap<>();
 
     /**
-     * 连接设备，支持自定义超时时间
-     *
-     * @param type    设备类型枚举 {@link DeviceType}
-     * @param params  连接参数：
-     *                对于 RTU: [String portName, int baudRate]
-     *                对于 TCP: [String ip, int port]
-     * @param timeout 超时时间（毫秒）
-     * @return 连接成功的设备对象 {@link ModbusDevice}
-     * @throws ModbusException 如果连接失败或不支持设备类型
+     * 常连接设备 ID 集合
      */
-    public ModbusDevice connectDevice(DeviceType type, Object[] params, int timeout) throws ModbusException {
+    private final Set<String>              persistentDevices = ConcurrentHashMap.newKeySet();
+    /**
+     * 业务操作执行线程池（用于批量连接/断开）
+     */
+    private final ExecutorService          operationExecutor = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "mod4j-operation");
+        t.setDaemon(true);
+        return t;
+    });
+    /**
+     * 心跳定时任务线程池
+     */
+    private       ScheduledExecutorService heartbeatExecutor;
+
+    /**
+     * 开启心跳检测
+     *
+     * @param interval 检查间隔（秒）
+     */
+    public synchronized void startHeartbeat(int interval) {
+        if (heartbeatExecutor != null && !heartbeatExecutor.isShutdown()) {
+            return;
+        }
+        heartbeatExecutor = new ScheduledThreadPoolExecutor(1, r -> {
+            var t = new Thread(r, "mod4j-heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
+        heartbeatExecutor.scheduleAtFixedRate(this::checkDevices, interval, interval, TimeUnit.SECONDS);
+        System.out.println("[mod4j] 心跳检测已启动，间隔: " + interval + "s");
+    }
+
+    /**
+     * 停止心跳检测
+     */
+    public synchronized void stopHeartbeat() {
+        if (heartbeatExecutor != null) {
+            heartbeatExecutor.shutdownNow();
+            heartbeatExecutor = null;
+            System.out.println("[mod4j] 心跳检测已停止");
+        }
+    }
+
+    /**
+     * 检查所有设备的连接状态
+     */
+    private void checkDevices() {
+        for (ModbusDevice device : connectedDevices.values()) {
+            if (!device.isHeartbeatEnabled()) {
+                continue;
+            }
+            String deviceId = device.getDeviceId();
+            // 在心跳线程中异步执行，避免一个设备阻塞导致心跳整体延迟
+            CompletableFuture.runAsync(() -> {
+                try {
+                    device.ping();
+                } catch (ModbusException e) {
+                    System.err.println("[mod4j] 设备心跳丢失: " + deviceId + ", 错误: " + e.getMessage());
+                    handleDeviceFailure(device);
+                }
+            }, operationExecutor);
+        }
+    }
+
+    /**
+     * 处理设备失败
+     *
+     * @param device 失败的设备
+     */
+    private void handleDeviceFailure(ModbusDevice device) {
+        String deviceId = device.getDeviceId();
+
+        while (connectedDevices.containsKey(deviceId)) {
+            boolean isPersistent = persistentDevices.contains(deviceId);
+            try {
+                System.out.println("[mod4j] 尝试恢复设备连接: " + deviceId);
+                device.refresh();
+                System.out.println("[mod4j] 设备恢复成功: " + deviceId);
+                break;
+            } catch (ModbusException re) {
+                System.err.println("[mod4j] 设备恢复失败: " + deviceId + ", 错误: " + re.getMessage());
+                if (!isPersistent) {
+                    System.err.println("[mod4j] 非常连接设备，正在移除: " + deviceId);
+                    connectedDevices.remove(deviceId);
+                    break;
+                }
+                // 常连接设备，无限重试（此处加延迟）
+                try {
+                    TimeUnit.SECONDS.sleep(10);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * 连接设备
+     *
+     * @param config 设备配置 {@link DeviceConfig}
+     * @return 连接成功的设备对象 {@link ModbusDevice}
+     * @throws ModbusException 如果连接失败
+     */
+    public ModbusDevice connectDevice(DeviceConfig config) throws ModbusException {
         ModbusDevice device;
-        if (type == DeviceType.RTU) {
+        if (config.type() == DeviceType.RTU) {
             device = new SerialModbusDevice();
-        } else if (type == DeviceType.TCP) {
+        } else if (config.type() == DeviceType.TCP) {
             device = new TcpModbusDevice();
         } else {
             throw new ModbusException("[mod4j] 不支持的设备类型");
         }
 
-        device.setTimeout(timeout);
-        device.connect(params);
-        String deviceId = device.getDeviceId();
-        connectedDevices.put(deviceId, device);
+        device.connect(config);
+        connectedDevices.put(device.getDeviceId(), device);
         return device;
     }
 
     /**
-     * 连接设备（使用默认超时时间）
+     * 批量连接设备
      *
-     * @param type   设备类型枚举 {@link DeviceType}
-     * @param params 连接参数
-     * @return 连接成功的设备对象 {@link ModbusDevice}
-     * @throws ModbusException 如果连接失败
+     * @param configs 设备配置集合
      */
-    public ModbusDevice connectDevice(DeviceType type, Object[] params) throws ModbusException {
-        // TCP 默认 3000ms, RTU 默认 2000ms, 这里统一传 3000ms 或让实现类自行决定（如果传 -1）
-        // 既然我们增加了参数，最好提供一个默认值。
-        return connectDevice(type, params, 3000);
-    }
-
-    /**
-     * 获取已连接的设备
-     *
-     * @param deviceId 设备 ID (例如 "TCP:127.0.0.1:502" 或 "RTU:COM1")
-     * @return 设备对象，如果未找到则返回 null
-     */
-    public ModbusDevice getDevice(String deviceId) {
-        return connectedDevices.get(deviceId);
+    public void batchConnectDevices(Collection<DeviceConfig> configs) {
+        List<CompletableFuture<Void>> futures = configs.stream()
+                                                       .map(config -> CompletableFuture.runAsync(() -> {
+                                                           try {
+                                                               connectDevice(config);
+                                                           } catch (ModbusException e) {
+                                                               System.err.println("[mod4j] 批量连接设备失败: " + config.getDeviceId() + ", " + e.getMessage());
+                                                           }
+                                                       }, operationExecutor))
+                                                       .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
     /**
@@ -80,18 +169,64 @@ public class ModbusClient {
      */
     public void disconnectDevice(String deviceId) throws ModbusException {
         ModbusDevice device = connectedDevices.remove(deviceId);
+        persistentDevices.remove(deviceId);
         if (device != null) {
             device.disconnect();
         }
     }
 
     /**
-     * 发送原始字节请求到指定设备
+     * 批量断开并移除设备
+     *
+     * @param deviceIds 设备 ID 集合
+     */
+    public void batchDisconnectDevices(Collection<String> deviceIds) {
+        List<CompletableFuture<Void>> futures = deviceIds.stream()
+                                                         .map(id -> CompletableFuture.runAsync(() -> {
+                                                             try {
+                                                                 disconnectDevice(id);
+                                                             } catch (ModbusException e) {
+                                                                 System.err.println("[mod4j] 批量断开设备失败: " + id + ", " + e.getMessage());
+                                                             }
+                                                         }, operationExecutor))
+                                                         .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    }
+
+    /**
+     * 将设备标记为常连接设备
      *
      * @param deviceId 设备 ID
-     * @param command  原始 Modbus 报文
-     * @return 响应字节数组
-     * @throws ModbusException 如果设备未连接或通信失败
+     */
+    public void markAsPersistent(String deviceId) {
+        if (connectedDevices.containsKey(deviceId)) {
+            persistentDevices.add(deviceId);
+            System.out.println("[mod4j] 设备已标记为常连接: " + deviceId);
+        }
+    }
+
+    /**
+     * 取消设备的常连接标记
+     *
+     * @param deviceId 设备 ID
+     */
+    public void unmarkAsPersistent(String deviceId) {
+        persistentDevices.remove(deviceId);
+        System.out.println("[mod4j] 设备已取消常连接标记: " + deviceId);
+    }
+
+    /**
+     * 获取已连接的设备
+     *
+     * @param deviceId 设备 ID
+     * @return 设备对象，如果未找到则返回 null
+     */
+    public ModbusDevice getDevice(String deviceId) {
+        return connectedDevices.get(deviceId);
+    }
+
+    /**
+     * 发送原始字节请求到指定设备
      */
     public byte[] sendRawRequest(String deviceId, byte[] command) throws ModbusException {
         ModbusDevice device = connectedDevices.get(deviceId);
@@ -103,14 +238,6 @@ public class ModbusClient {
 
     /**
      * 发送参数化请求到指定设备
-     *
-     * @param deviceId 设备 ID
-     * @param slaveId  从站 ID
-     * @param funcCode 功能码
-     * @param address  寄存器地址
-     * @param quantity 寄存器数量
-     * @return 响应字节数组
-     * @throws ModbusException 如果设备未连接或通信失败
      */
     public byte[] sendRequest(String deviceId, int slaveId, int funcCode, int address, int quantity) throws ModbusException {
         ModbusDevice device = connectedDevices.get(deviceId);
@@ -122,10 +249,6 @@ public class ModbusClient {
 
     /**
      * 设置指定设备的超时时间
-     *
-     * @param deviceId 设备 ID
-     * @param timeout  超时时间（毫秒）
-     * @throws ModbusException 如果设备不存在
      */
     public void setTimeout(String deviceId, int timeout) throws ModbusException {
         ModbusDevice device = connectedDevices.get(deviceId);
@@ -137,10 +260,24 @@ public class ModbusClient {
 
     /**
      * 获取所有当前已连接的设备 ID 及其对应对象的映射副本
-     *
-     * @return 设备 ID 到设备对象的映射
      */
     public Map<String, ModbusDevice> getConnectedDevices() {
         return new ConcurrentHashMap<>(connectedDevices);
+    }
+
+    /**
+     * 优雅停机
+     */
+    public void shutdown() {
+        stopHeartbeat();
+        batchDisconnectDevices(new ArrayList<>(connectedDevices.keySet()));
+        operationExecutor.shutdown();
+        try {
+            if (!operationExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                operationExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            operationExecutor.shutdownNow();
+        }
     }
 }

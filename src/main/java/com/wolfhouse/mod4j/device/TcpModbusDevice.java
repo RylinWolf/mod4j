@@ -52,16 +52,20 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     private OutputStream outputStream;
 
+    /**
+     * 是否开启心跳检测
+     */
+    private boolean heartbeatEnabled = true;
+
     @Override
-    public synchronized void connect(Object[] params) throws ModbusException {
+    public synchronized void connect(DeviceConfig config) throws ModbusException {
         try {
-            // 解析参数：params[0] 为 IP, params[1] 为端口号
-            this.ip   = (String) params[0];
-            this.port = (int) params[1];
+            this.ip      = (String) config.params()[0];
+            this.port    = (int) config.params()[1];
+            this.timeout = config.timeout();
             System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port);
 
             this.socket = new Socket(ip, port);
-            // 设置超时时间
             this.socket.setSoTimeout(this.timeout);
             this.inputStream  = socket.getInputStream();
             this.outputStream = socket.getOutputStream();
@@ -74,29 +78,48 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void disconnect() throws ModbusException {
         System.out.println("[mod4j] 断开 TCP 连接: " + getDeviceId());
+        ModbusException firstException = null;
         try {
             if (inputStream != null) {
                 inputStream.close();
             }
+        } catch (IOException e) {
+            firstException = new ModbusIOException("[mod4j] 关闭 TCP 输入流异常: " + e.getMessage(), e);
+        }
+
+        try {
             if (outputStream != null) {
                 outputStream.close();
             }
+        } catch (IOException e) {
+            if (firstException == null) {
+                firstException = new ModbusIOException("[mod4j] 关闭 TCP 输出流异常: " + e.getMessage(), e);
+            }
+        }
+
+        try {
             if (socket != null) {
                 socket.close();
             }
         } catch (IOException e) {
-            throw new ModbusIOException("[mod4j] 断开 TCP 连接异常: " + e.getMessage(), e);
-        } finally {
-            inputStream  = null;
-            outputStream = null;
-            socket       = null;
+            if (firstException == null) {
+                firstException = new ModbusIOException("[mod4j] 关闭 TCP Socket 异常: " + e.getMessage(), e);
+            }
+        }
+
+        inputStream  = null;
+        outputStream = null;
+        socket       = null;
+
+        if (firstException != null) {
+            throw firstException;
         }
     }
 
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new Object[]{ip, port});
+        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, new Object[]{ip, port}, timeout));
     }
 
     @Override
@@ -193,6 +216,23 @@ public class TcpModbusDevice implements ModbusDevice {
     public byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
         byte[] command = ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
         return sendRawRequest(command);
+    }
+
+    @Override
+    public void ping() throws ModbusException {
+        // 使用 0x03 功能码读取地址 0 的 1 个寄存器作为心跳
+        // slaveId 默认为 1
+        sendRequest(1, 3, 0, 1);
+    }
+
+    @Override
+    public boolean isHeartbeatEnabled() {
+        return heartbeatEnabled;
+    }
+
+    @Override
+    public void setHeartbeatEnabled(boolean enabled) {
+        this.heartbeatEnabled = enabled;
     }
 
     /**
