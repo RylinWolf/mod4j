@@ -57,43 +57,34 @@ mod4j
 ### 2. 连接与管理设备
 
 ```java
-ModbusClient client = new ModbusClient();
-
-try{
-// 定义配置
-DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"192.168.1.10", 502}, 5000);
-
-// 连接单个设备
-ModbusDevice tcpDevice = client.connectDevice(config);
-
-// 标记为常连接设备（自动重连且不自动移除）
-    client.
-
-markAsPersistent(tcpDevice.getDeviceId());
-
-// 可选：关闭心跳检测
-// tcpDevice.setHeartbeatEnabled(false);
-
-// 发送指令
-byte[] response = tcpDevice.sendRequest(1, 3, 0, 10);
-}catch(
-ModbusException e){
-        System.err.
-
-println("[mod4j] 错误: "+e.getMessage());
-        }
+void fun() {
+    ModbusClient client = new ModbusClient();
+    try {
+        // 定义配置
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"192.168.1.10", 502}, 5000);
+        // 连接单个设备
+        ModbusDevice tcpDevice = client.connectDevice(config);
+        // 标记为常连接设备（自动重连且不自动移除）
+        client.markAsPersistent(tcpDevice.getDeviceId());
+        // 可选：关闭心跳检测
+        // tcpDevice.setHeartbeatEnabled(false);
+        // 发送指令
+        byte[] response = tcpDevice.sendRequest(1, 3, 0, 10);
+    } catch (ModbusException e) {
+        System.err.println("[mod4j] 错误: " + e.getMessage());
+    }
+}
 ```
 
 ### 3. 断开连接
 
 ```java
-try{
+void fun() {
+    try {
         client.disconnectDevice("TCP:192.168.1.10:502");
-}catch(
-ModbusException e){
-        e.
-
-printStackTrace();
+    } catch (ModbusException e) {
+        e.printStackTrace();
+    }
 }
 ```
 
