@@ -1,10 +1,23 @@
 package com.wolfhouse.mod4j.device.conf;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.Accessors;
+import lombok.experimental.SuperBuilder;
+
 /**
  * 串口设备配置类
  *
  * @author Rylin Wolf
  */
+@Data
+@SuperBuilder
+@AllArgsConstructor
+@NoArgsConstructor
+@Accessors(chain = true)
+@EqualsAndHashCode(callSuper = true)
 public class SerialDeviceConfig extends AbstractDeviceConfig {
     /** 串口端口 */
     private String port;
@@ -16,52 +29,4 @@ public class SerialDeviceConfig extends AbstractDeviceConfig {
     private int    stopBits;
     /** 校验位 */
     private int    parity;
-
-    public SerialDeviceConfig(String port, int baudRate, int dataBits, int stopBits, int parity) {
-        this.port     = port;
-        this.baudRate = baudRate;
-        this.dataBits = dataBits;
-        this.stopBits = stopBits;
-        this.parity   = parity;
-    }
-
-    public String getPort() {
-        return port;
-    }
-
-    public void setPort(String port) {
-        this.port = port;
-    }
-
-    public int getBaudRate() {
-        return baudRate;
-    }
-
-    public void setBaudRate(int baudRate) {
-        this.baudRate = baudRate;
-    }
-
-    public int getDataBits() {
-        return dataBits;
-    }
-
-    public void setDataBits(int dataBits) {
-        this.dataBits = dataBits;
-    }
-
-    public int getStopBits() {
-        return stopBits;
-    }
-
-    public void setStopBits(int stopBits) {
-        this.stopBits = stopBits;
-    }
-
-    public int getParity() {
-        return parity;
-    }
-
-    public void setParity(int parity) {
-        this.parity = parity;
-    }
 }
