@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.util.Arrays;
+import java.util.Scanner;
 
 /**
  * ModbusClient 测试类
@@ -45,9 +46,23 @@ public class ModbusClientTest {
     }
 
     @Test
+    public void startTcpSimulator() {
+        Scanner scanner = new Scanner(System.in);
+        try {
+            while (true) {
+                if (scanner.nextLine().equals("y")) {
+                    break;
+                }
+            }
+        } finally {
+            simulator.stop();
+        }
+    }
+
+    @Test
     public void testConnectAndRequest() throws ModbusException {
         // 使用模拟器进行真实连接测试
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 2000, new Object[]{"127.0.0.1", testPort});
         ModbusDevice device = client.connectDevice(config);
         Assert.assertNotNull(device);
         Assert.assertTrue(device.isConnected());
@@ -71,8 +86,8 @@ public class ModbusClientTest {
 
     @Test
     public void testBatchOperations() throws ModbusException {
-        DeviceConfig config1 = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
-        DeviceConfig config3 = new DeviceConfig(DeviceType.TCP, new Object[]{"localhost", testPort}, 2000);
+        DeviceConfig config1 = new DeviceConfig(DeviceType.TCP, 2000, new Object[]{"127.0.0.1", testPort});
+        DeviceConfig config3 = new DeviceConfig(DeviceType.TCP, 2000, new Object[]{"localhost", testPort});
 
         client.batchConnectDevices(Arrays.asList(config1, config3));
         Assert.assertEquals(2, client.getConnectedDevices().size());
@@ -83,7 +98,7 @@ public class ModbusClientTest {
 
     @Test
     public void testPersistentDevice() throws ModbusException, InterruptedException, IOException {
-        DeviceConfig config   = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        DeviceConfig config   = new DeviceConfig(DeviceType.TCP, 1000, new Object[]{"127.0.0.1", testPort});
         ModbusDevice device   = client.connectDevice(config);
         String       deviceId = device.getDeviceId();
 
@@ -117,8 +132,25 @@ public class ModbusClientTest {
     }
 
     @Test
+    public void testDuplicateConnect() throws ModbusException {
+        DeviceConfig config  = new DeviceConfig(DeviceType.TCP, 2000, new Object[]{"127.0.0.1", testPort});
+        ModbusDevice device1 = client.connectDevice(config);
+        Assert.assertNotNull(device1);
+        Assert.assertTrue(device1.isConnected());
+
+        // 再次连接，应该返回同一个对象且不报错
+        ModbusDevice device2 = client.connectDevice(config);
+        Assert.assertSame("多次连接应返回同一实例", device1, device2);
+        Assert.assertTrue(device2.isConnected());
+
+        // 直接调用设备的 connect，应该被拦截
+        device2.connect(config);
+        Assert.assertTrue(device2.isConnected());
+    }
+
+    @Test
     public void testAsyncRequest() throws Exception {
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 2000, new Object[]{"127.0.0.1", testPort});
         ModbusDevice device = client.connectDevice(config);
 
         // 异步发送请求
@@ -139,7 +171,7 @@ public class ModbusClientTest {
 
     @Test
     public void testHeartbeat() throws ModbusException, InterruptedException {
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 1000, new Object[]{"127.0.0.1", testPort});
         ModbusDevice device = client.connectDevice(config);
         Assert.assertTrue(device.isConnected());
 
@@ -171,7 +203,7 @@ public class ModbusClientTest {
 
     @Test
     public void testCustomHeartbeat() throws ModbusException, InterruptedException {
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 1000, new Object[]{"127.0.0.1", testPort});
         ModbusDevice device = client.connectDevice(config);
 
         // 设置自定义心跳策略：读取 10 号寄存器

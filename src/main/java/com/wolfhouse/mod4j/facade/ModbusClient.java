@@ -129,6 +129,20 @@ public class ModbusClient {
      * @throws ModbusException 如果连接失败
      */
     public ModbusDevice connectDevice(DeviceConfig config) throws ModbusException {
+        String deviceId = config.getDeviceId();
+        // 1. 检查当前是否已有该设备
+        if (connectedDevices.containsKey(deviceId)) {
+            ModbusDevice existingDevice = connectedDevices.get(deviceId);
+            if (existingDevice.isConnected()) {
+                System.out.println("[mod4j] 设备已连接，返回现有对象: " + deviceId);
+                return existingDevice;
+            }
+            System.out.println("[mod4j] 设备存在但未连接，尝试刷新: " + deviceId);
+            existingDevice.refresh();
+            return existingDevice;
+        }
+
+        // 2. 根据不同设备类型，创建设备实例并连接
         ModbusDevice device;
         if (config.type() == DeviceType.RTU) {
             device = new SerialModbusDevice();
@@ -140,7 +154,7 @@ public class ModbusClient {
 
         device.connect(config);
         device.setClient(this);
-        
+
         connectedDevices.put(device.getDeviceId(), device);
         return device;
     }

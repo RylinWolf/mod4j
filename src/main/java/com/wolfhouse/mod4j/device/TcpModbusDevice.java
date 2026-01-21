@@ -1,5 +1,6 @@
 package com.wolfhouse.mod4j.device;
 
+import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
 import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
@@ -11,6 +12,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * TCP 设备实现
@@ -63,8 +66,18 @@ public class TcpModbusDevice implements ModbusDevice {
     private HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
     private ModbusClient      client;
 
+    /**
+     * 默认构造函数（建议通过 ModbusClient 连接）
+     */
+    public TcpModbusDevice() {
+    }
+
     @Override
     public synchronized void connect(DeviceConfig config) throws ModbusException {
+        if (isConnected()) {
+            System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
+            return;
+        }
         try {
             this.ip      = (String) config.params()[0];
             this.port    = (int) config.params()[1];
@@ -125,7 +138,7 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, new Object[]{ip, port}, timeout));
+        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, timeout, ip, port));
     }
 
     @Override
@@ -210,27 +223,13 @@ public class TcpModbusDevice implements ModbusDevice {
     }
 
     @Override
-    public java.util.concurrent.CompletableFuture<byte[]> sendRawRequestAsync(byte[] command) {
-        java.util.concurrent.Executor executor = (client != null) ? client.getOperationExecutor() : java.util.concurrent.ForkJoinPool.commonPool();
-        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            try {
-                return sendRawRequest(command);
-            } catch (ModbusException e) {
-                throw new RuntimeException(e);
-            }
-        }, executor);
+    public CompletableFuture<byte[]> sendRawRequestAsync(byte[] command) {
+        return doAsync(() -> sendRawRequest(command), client);
     }
 
     @Override
-    public java.util.concurrent.CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity) {
-        java.util.concurrent.Executor executor = (client != null) ? client.getOperationExecutor() : java.util.concurrent.ForkJoinPool.commonPool();
-        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            try {
-                return sendRequest(slaveId, funcCode, address, quantity);
-            } catch (ModbusException e) {
-                throw new RuntimeException(e);
-            }
-        }, executor);
+    public CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity) {
+        return doAsync(() -> sendRequest(slaveId, funcCode, address, quantity), client);
     }
 
     @Override
@@ -294,5 +293,10 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public String getDeviceId() {
         return "TCP:" + ip + ":" + port;
+    }
+
+    @Override
+    public Set<DeviceType> supportedDeviceTypes() {
+        return Set.of(DeviceType.TCP);
     }
 }

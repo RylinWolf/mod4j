@@ -12,7 +12,7 @@ import com.wolfhouse.mod4j.enums.DeviceType;
  * @param timeout 超时时间（毫秒）
  * @author Rylin Wolf
  */
-public record DeviceConfig(DeviceType type, Object[] params, int timeout) {
+public record DeviceConfig(DeviceType type, int timeout, Object... params) {
     /**
      * 获取设备标识符
      *

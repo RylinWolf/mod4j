@@ -1,6 +1,14 @@
 package com.wolfhouse.mod4j.device;
 
+import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
+import com.wolfhouse.mod4j.facade.ModbusClient;
+
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
+import java.util.function.Supplier;
 
 /**
  * Modbus 设备接口，定义了连接、断开、刷新以及发送指令的标准行为
@@ -14,7 +22,9 @@ public interface ModbusDevice {
      * @param config 设备配置 {@link DeviceConfig}
      * @throws ModbusException 连接异常
      */
-    void connect(DeviceConfig config) throws ModbusException;
+    default void connect(DeviceConfig config) throws ModbusException {
+        checkSupported(config);
+    }
 
     /**
      * 断开设备连接
@@ -64,7 +74,7 @@ public interface ModbusDevice {
      * @param command 原始字节指令
      * @return CompletableFuture，完成时包含响应字节数组
      */
-    java.util.concurrent.CompletableFuture<byte[]> sendRawRequestAsync(byte[] command);
+    CompletableFuture<byte[]> sendRawRequestAsync(byte[] command);
 
     /**
      * 异步参数化发送请求
@@ -75,8 +85,13 @@ public interface ModbusDevice {
      * @param quantity 数量
      * @return CompletableFuture，完成时包含响应字节数组
      */
-    java.util.concurrent.CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity);
+    CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity);
 
+    /**
+     * 获取超时时间（毫秒）
+     *
+     * @return 超时时间（毫秒）
+     */
     int getTimeout();
 
     /**
@@ -134,5 +149,43 @@ public interface ModbusDevice {
      * @param client ModbusClient 门面类
      */
     default void setClient(com.wolfhouse.mod4j.facade.ModbusClient client) {
+    }
+
+    /**
+     * 获取支持的设备类型
+     *
+     * @return 支持的设备类型数组
+     */
+    Set<DeviceType> supportedDeviceTypes();
+
+    /**
+     * 检查设备配置是否支持当前设备类型
+     *
+     * @param config 设备配置
+     */
+    default void checkSupported(DeviceConfig config) {
+        DeviceType      type      = config.type();
+        Set<DeviceType> supported = this.supportedDeviceTypes();
+        if (!supported.contains(type)) {
+            throw new ModbusException("[mod4j] 当前 modbus 设备不支持该连接类型： [%s]！支持的类型包括：[%s]".formatted(type, supported));
+        }
+    }
+
+    /**
+     * 执行异步操作，使用提供的客户端的执行器或公共 fork-join 池（如果客户端为 null）。
+     * 如果发生错误，将重新抛出 {@code ModbusException}。
+     *
+     * @param supplier 用于异步执行的供应商函数。不得为 null。
+     * @param client   提供操作执行器的 Modbus 客户端。可以为 null，
+     *                 在这种情况下使用公共 fork-join 池。
+     * @return 一个 {@code CompletableFuture}，它将返回 Supplier 的结果，
+     * 或者在执行期间发生错误时抛出 {@code ModbusException}。
+     */
+    default CompletableFuture<byte[]> doAsync(Supplier<byte[]> supplier, ModbusClient client) {
+        Executor executor = (client != null) ? client.getOperationExecutor() : ForkJoinPool.commonPool();
+        return CompletableFuture.supplyAsync(supplier, executor).exceptionally(e -> {
+            System.err.println("[mod4j] 线程池执行异步任务失败! " + e.getMessage());
+            throw new ModbusException(e);
+        });
     }
 }

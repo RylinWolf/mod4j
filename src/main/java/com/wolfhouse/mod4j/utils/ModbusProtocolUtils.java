@@ -9,11 +9,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class ModbusProtocolUtils {
     /**
-     * Modbus TCP 协议标识符 (0x0000)
-     */
-    public static final Integer PROTOCOL_ID = 0x0000;
-
-    /**
      * TCP 事务标识符计数器
      */
     private static final AtomicInteger TRANSACTION_ID = new AtomicInteger(0x0000);
@@ -29,7 +24,7 @@ public class ModbusProtocolUtils {
      * @param slaveId      从站 ID
      * @param functionCode 功能码
      * @param address      起始地址
-     * @param quantity     寄存器数量/线圈数量
+     * @param quantity     寄存器数量
      * @return 构建好的完整 RTU 报文
      */
     public static byte[] buildRtuPdu(int slaveId, int functionCode, int address, int quantity) {
@@ -56,7 +51,7 @@ public class ModbusProtocolUtils {
      * @param slaveId      从站 ID
      * @param functionCode 功能码
      * @param address      起始地址
-     * @param quantity     寄存器数量/线圈数量
+     * @param quantity     寄存器数量
      * @return 构建好的完整 TCP 报文
      */
     public static byte[] buildTcpPdu(int slaveId, int functionCode, int address, int quantity) {
@@ -68,7 +63,7 @@ public class ModbusProtocolUtils {
         // Protocol ID (0)
         frame[2] = 0;
         frame[3] = 0;
-        // Length (6 bytes follow)
+        // Length (6 字节)
         frame[4] = 0;
         frame[5] = 6;
         // Unit ID

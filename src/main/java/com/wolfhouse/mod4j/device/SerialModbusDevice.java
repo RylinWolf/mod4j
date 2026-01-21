@@ -1,6 +1,7 @@
 package com.wolfhouse.mod4j.device;
 
 import com.fazecast.jSerialComm.SerialPort;
+import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
 import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
@@ -10,11 +11,9 @@ import com.wolfhouse.mod4j.utils.ModbusProtocolUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 /**
  * 串口设备实现
@@ -62,7 +61,7 @@ public class SerialModbusDevice implements ModbusDevice {
     private ModbusClient      client;
 
     /**
-     * 默认构造函数
+     * 默认构造函数（建议通过 ModbusClient 连接）
      */
     public SerialModbusDevice() {
     }
@@ -81,6 +80,10 @@ public class SerialModbusDevice implements ModbusDevice {
 
     @Override
     public synchronized void connect(DeviceConfig config) throws ModbusException {
+        if (isConnected()) {
+            System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
+            return;
+        }
         // 解析参数：params[0] 为端口名, params[1] 为波特率
         this.portName = (String) config.params()[0];
         this.baudRate = (int) config.params()[1];
@@ -140,7 +143,7 @@ public class SerialModbusDevice implements ModbusDevice {
     public synchronized void refresh() throws ModbusException {
         disconnect();
         if (serialPort != null) {
-            connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.RTU, new Object[]{portName, baudRate}, timeout));
+            connect(new DeviceConfig(DeviceType.RTU, timeout, portName, baudRate));
         }
     }
 
@@ -235,21 +238,14 @@ public class SerialModbusDevice implements ModbusDevice {
 
     @Override
     public CompletableFuture<byte[]> sendRawRequestAsync(byte[] command) {
-        return doAsync(() -> sendRawRequest(command));
+        return doAsync(() -> sendRawRequest(command), client);
     }
 
     @Override
     public CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity) {
-        return doAsync(() -> sendRequest(slaveId, funcCode, address, quantity));
+        return doAsync(() -> sendRequest(slaveId, funcCode, address, quantity), client);
     }
 
-    private CompletableFuture<byte[]> doAsync(Supplier<byte[]> supplier) {
-        Executor executor = (client != null) ? client.getOperationExecutor() : ForkJoinPool.commonPool();
-        return CompletableFuture.supplyAsync(supplier, executor).exceptionally(e -> {
-            System.err.println("[mod4j] 线程池执行异步任务失败! " + e.getMessage());
-            throw new ModbusException(e);
-        });
-    }
 
     @Override
     public int getTimeout() {
@@ -308,5 +304,10 @@ public class SerialModbusDevice implements ModbusDevice {
     @Override
     public String getDeviceId() {
         return "RTU:" + portName;
+    }
+
+    @Override
+    public Set<DeviceType> supportedDeviceTypes() {
+        return Set.of(DeviceType.RTU);
     }
 }
