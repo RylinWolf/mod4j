@@ -10,6 +10,7 @@ import com.wolfhouse.mod4j.event.DeviceConnectedEvent;
 import com.wolfhouse.mod4j.event.DeviceDisconnectedEvent;
 import com.wolfhouse.mod4j.event.ModbusEventListener;
 import com.wolfhouse.mod4j.exception.ModbusException;
+import lombok.Getter;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -36,6 +37,7 @@ public class ModbusClient {
     /**
      * 业务操作执行线程池（用于批量连接/断开）
      */
+    @Getter
     private final ExecutorService          operationExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "mod4j-operation");
         t.setDaemon(true);
@@ -296,10 +298,7 @@ public class ModbusClient {
      * 发送原始字节请求到指定设备
      */
     public byte[] sendRawRequest(String deviceId, byte[] command) throws ModbusException {
-        ModbusDevice device = connectedDevices.get(deviceId);
-        if (device == null) {
-            throw new ModbusException("[mod4j] 设备未连接或不存在: " + deviceId);
-        }
+        ModbusDevice device = getModbusDevice(deviceId);
         return device.sendRawRequest(command);
     }
 
@@ -307,21 +306,58 @@ public class ModbusClient {
      * 发送参数化请求到指定设备
      */
     public byte[] sendRequest(String deviceId, int slaveId, int funcCode, int address, int quantity) throws ModbusException {
+        ModbusDevice device = getModbusDevice(deviceId);
+        return device.sendRequest(slaveId, funcCode, address, quantity);
+    }
+
+    /**
+     * 异步发送原始字节请求到指定设备
+     *
+     * @param deviceId 设备 ID
+     * @param command  请求字节数组
+     * @return CompletableFuture<byte[]> 异步请求结果
+     * @throws ModbusException Modbus 异常
+     */
+    public CompletableFuture<byte[]> sendRawRequestAsync(String deviceId, byte[] command) throws ModbusException {
+        ModbusDevice device = getModbusDevice(deviceId);
+        return device.sendRawRequestAsync(command);
+    }
+
+    /**
+     * 异步发送参数化请求到指定设备
+     *
+     * @param deviceId 设备 ID
+     * @param slaveId  从站 ID
+     * @param funcCode 功能码
+     * @param address  地址
+     * @param quantity 寄存器数量
+     * @return CompletableFuture<byte[]> 异步请求结果
+     * @throws ModbusException Modbus 异常
+     */
+    public CompletableFuture<byte[]> sendRequestAsync(String deviceId, int slaveId, int funcCode, int address, int quantity) throws ModbusException {
+        ModbusDevice device = getModbusDevice(deviceId);
+        return device.sendRequestAsync(slaveId, funcCode, address, quantity);
+    }
+
+    /**
+     * 根据设备 ID 获取设备，不存在则抛出异常
+     *
+     * @param deviceId 设备 ID
+     * @return 设备对象
+     */
+    private ModbusDevice getModbusDevice(String deviceId) {
         ModbusDevice device = connectedDevices.get(deviceId);
         if (device == null) {
             throw new ModbusException("[mod4j] 设备未连接或不存在: " + deviceId);
         }
-        return device.sendRequest(slaveId, funcCode, address, quantity);
+        return device;
     }
 
     /**
      * 设置指定设备的超时时间
      */
     public void setTimeout(String deviceId, int timeout) throws ModbusException {
-        ModbusDevice device = connectedDevices.get(deviceId);
-        if (device == null) {
-            throw new ModbusException("[mod4j] 设备未连接或不存在: " + deviceId);
-        }
+        ModbusDevice device = getModbusDevice(deviceId);
         device.setTimeout(timeout);
     }
 
@@ -347,14 +383,5 @@ public class ModbusClient {
             operationExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
-    }
-
-    /**
-     * 获取业务操作执行线程池
-     *
-     * @return 线程池
-     */
-    public ExecutorService getOperationExecutor() {
-        return operationExecutor;
     }
 }
