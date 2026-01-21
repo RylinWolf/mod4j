@@ -1,5 +1,7 @@
 package com.wolfhouse.mod4j.device;
 
+import com.wolfhouse.mod4j.device.conf.DeviceConfig;
+import com.wolfhouse.mod4j.device.conf.TcpDeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
@@ -78,9 +80,12 @@ public class TcpModbusDevice implements ModbusDevice {
             System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
             return;
         }
+        // 检查是否支持该连接类型
+        checkSupported(config);
         try {
-            this.ip      = (String) config.params()[0];
-            this.port    = (int) config.params()[1];
+            TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
+            this.ip      = tcpConfig.getIp();
+            this.port    = tcpConfig.getPort();
             this.timeout = config.timeout();
             System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port);
 
@@ -138,7 +143,7 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, timeout, ip, port));
+        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, timeout, new TcpDeviceConfig(ip, port)));
     }
 
     @Override

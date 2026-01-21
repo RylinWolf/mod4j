@@ -1,9 +1,9 @@
 package com.wolfhouse.mod4j.facade;
 
-import com.wolfhouse.mod4j.device.DeviceConfig;
 import com.wolfhouse.mod4j.device.ModbusDevice;
 import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.device.TcpModbusDevice;
+import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 

@@ -1,5 +1,6 @@
 package com.wolfhouse.mod4j.device;
 
+import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.facade.ModbusClient;

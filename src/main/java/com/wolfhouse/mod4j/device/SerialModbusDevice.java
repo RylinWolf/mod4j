@@ -1,6 +1,8 @@
 package com.wolfhouse.mod4j.device;
 
 import com.fazecast.jSerialComm.SerialPort;
+import com.wolfhouse.mod4j.device.conf.DeviceConfig;
+import com.wolfhouse.mod4j.device.conf.SerialDeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
@@ -84,14 +86,21 @@ public class SerialModbusDevice implements ModbusDevice {
             System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
             return;
         }
-        // 解析参数：params[0] 为端口名, params[1] 为波特率
-        this.portName = (String) config.params()[0];
-        this.baudRate = (int) config.params()[1];
+        // 检查是否支持该连接类型
+        checkSupported(config);
+
+        // 解析参数
+        SerialDeviceConfig serialConfig = (SerialDeviceConfig) config.config();
+        this.portName = serialConfig.getPort();
+        this.baudRate = serialConfig.getBaudRate();
         this.timeout  = config.timeout();
         System.out.println("[mod4j] 正在连接串口: " + portName + " 波特率: " + baudRate);
 
         this.serialPort = SerialPort.getCommPort(portName);
         this.serialPort.setBaudRate(baudRate);
+        this.serialPort.setParity(serialConfig.getParity());
+        this.serialPort.setNumStopBits(serialConfig.getStopBits());
+        this.serialPort.setNumDataBits(serialConfig.getDataBits());
         this.serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, this.timeout, 0);
 
         if (this.serialPort.openPort()) {
@@ -143,7 +152,7 @@ public class SerialModbusDevice implements ModbusDevice {
     public synchronized void refresh() throws ModbusException {
         disconnect();
         if (serialPort != null) {
-            connect(new DeviceConfig(DeviceType.RTU, timeout, portName, baudRate));
+            connect(new DeviceConfig(DeviceType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, 8, 1, 0)));
         }
     }
 

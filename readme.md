@@ -63,7 +63,7 @@ void fun() {
     ModbusClient client = new ModbusClient();
     try {
         // 定义配置
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"192.168.1.10", 502}, 5000);
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 5000, new TcpDeviceConfig("192.168.1.10", 502));
         // 连接单个设备
         ModbusDevice tcpDevice = client.connectDevice(config);
         // 设置自定义心跳策略（可选）
@@ -103,7 +103,8 @@ void fun() {
 
 ## 核心重构与优化内容
 
-1. **设备配置 Record**: 引入 `DeviceConfig` 替代 Object 数组参数传递，提高类型安全和可读性。
+1. **设备配置 Record**: 引入 `DeviceConfig` 结合 `AbstractDeviceConfig` 体系，替代 Object 数组参数传递，提高类型安全和 IDE
+   属性提示。
 2. **批量并发执行**: 引入 `ExecutorService` 处理设备生命周期操作，显著缩短多设备初始化时间。
 3. **增强型心跳自愈**: 区分普通设备与常连接设备，常连接设备具备无限重连特性，适用于工业级可靠性需求。
 4. **日志规范**: 所有系统输出均以 `[mod4j]` 为前缀，方便集成到外部日志系统。
