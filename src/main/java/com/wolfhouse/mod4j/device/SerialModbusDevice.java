@@ -1,6 +1,7 @@
 package com.wolfhouse.mod4j.device;
 
 import com.fazecast.jSerialComm.SerialPort;
+import com.fazecast.jSerialComm.SerialPortInvalidPortException;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.SerialDeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
@@ -96,7 +97,13 @@ public class SerialModbusDevice implements ModbusDevice {
         this.timeout  = config.timeout();
         System.out.println("[mod4j] 正在连接串口: " + portName + " 波特率: " + baudRate);
 
-        this.serialPort = SerialPort.getCommPort(portName);
+        try {
+            this.serialPort = SerialPort.getCommPort(portName);
+        } catch (SerialPortInvalidPortException e) {
+            System.err.printf("[mod4j] 串口不可用: %s, throws: %s%n", portName, e.getMessage());
+            clearStatements();
+            return;
+        }
         this.serialPort.setBaudRate(baudRate);
         this.serialPort.setParity(serialConfig.getParity());
         this.serialPort.setNumStopBits(serialConfig.getStopBits());
@@ -106,8 +113,10 @@ public class SerialModbusDevice implements ModbusDevice {
         if (this.serialPort.openPort()) {
             this.inputStream  = this.serialPort.getInputStream();
             this.outputStream = this.serialPort.getOutputStream();
-            System.out.println("[mod4j] 串口连接成功");
+            System.out.printf("[mod4j] 串口 %s 连接成功%n", portName);
         } else {
+            // 清除状态
+            clearStatements();
             throw new ModbusIOException("[mod4j] 无法打开串口: " + portName);
         }
     }
@@ -138,14 +147,21 @@ public class SerialModbusDevice implements ModbusDevice {
         if (serialPort != null) {
             serialPort.closePort();
         }
-
-        inputStream  = null;
-        outputStream = null;
-        serialPort   = null;
+        // 清理串口状态
+        clearStatements();
 
         if (firstException != null) {
             throw firstException;
         }
+    }
+
+    /**
+     * 清理串口相关状态，注意应在关闭连接后再使用
+     */
+    private void clearStatements() {
+        inputStream  = null;
+        outputStream = null;
+        serialPort   = null;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.wolfhouse.mod4j.device.conf;
 
 import com.wolfhouse.mod4j.enums.DeviceType;
+import lombok.Builder;
 
 /**
  * Modbus 设备连接配置记录类
@@ -10,6 +11,7 @@ import com.wolfhouse.mod4j.enums.DeviceType;
  * @param config  设备具体配置信息 {@link AbstractDeviceConfig}
  * @author Rylin Wolf
  */
+@Builder
 public record DeviceConfig(DeviceType type, int timeout, AbstractDeviceConfig config) {
     public DeviceConfig {
         if (config == null) {

@@ -93,7 +93,7 @@ public class TcpModbusDevice implements ModbusDevice {
             this.socket.setSoTimeout(this.timeout);
             this.inputStream  = socket.getInputStream();
             this.outputStream = socket.getOutputStream();
-            System.out.println("[mod4j] TCP 设备连接成功");
+            System.out.printf("[mod4j] TCP 设备 【%s】 连接成功%n", getDeviceId());
         } catch (IOException e) {
             throw new ModbusIOException("[mod4j] TCP 连接失败: " + e.getMessage(), e);
         }
