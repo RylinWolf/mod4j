@@ -59,10 +59,24 @@ public interface ModbusDevice {
     byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException;
 
     /**
-     * 获取超时时间
+     * 异步发送已经构建好的原始字节指令
      *
-     * @return 超时时间（毫秒）
+     * @param command 原始字节指令
+     * @return CompletableFuture，完成时包含响应字节数组
      */
+    java.util.concurrent.CompletableFuture<byte[]> sendRawRequestAsync(byte[] command);
+
+    /**
+     * 异步参数化发送请求
+     *
+     * @param slaveId  从站 ID
+     * @param funcCode 功能码
+     * @param address  寄存器地址
+     * @param quantity 数量
+     * @return CompletableFuture，完成时包含响应字节数组
+     */
+    java.util.concurrent.CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity);
+
     int getTimeout();
 
     /**
@@ -99,4 +113,26 @@ public interface ModbusDevice {
      * @param enabled true 为开启，false 为关闭
      */
     void setHeartbeatEnabled(boolean enabled);
+
+    /**
+     * 获取当前心跳检测策略
+     *
+     * @return 心跳策略
+     */
+    HeartbeatStrategy getHeartbeatStrategy();
+
+    /**
+     * 设置心跳检测策略
+     *
+     * @param strategy 心跳策略
+     */
+    void setHeartbeatStrategy(HeartbeatStrategy strategy);
+
+    /**
+     * 设置关联的客户端（用于获取线程池）
+     *
+     * @param client ModbusClient 门面类
+     */
+    default void setClient(com.wolfhouse.mod4j.facade.ModbusClient client) {
+    }
 }

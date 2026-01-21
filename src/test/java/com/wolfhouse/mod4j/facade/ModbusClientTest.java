@@ -117,6 +117,27 @@ public class ModbusClientTest {
     }
 
     @Test
+    public void testAsyncRequest() throws Exception {
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 2000);
+        ModbusDevice device = client.connectDevice(config);
+
+        // 异步发送请求
+        var future = device.sendRequestAsync(1, 3, 0, 1);
+
+        // 验证非阻塞
+        Assert.assertFalse("请求应该是异步的，不应立即完成", future.isDone());
+
+        // 阻塞等待结果
+        byte[] response = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        Assert.assertNotNull(response);
+        Assert.assertEquals(11, response.length);
+        Assert.assertEquals(3, response[7]);
+
+        client.disconnectDevice(device.getDeviceId());
+    }
+
+    @Test
     public void testHeartbeat() throws ModbusException, InterruptedException {
         DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
         ModbusDevice device = client.connectDevice(config);
@@ -145,6 +166,26 @@ public class ModbusClientTest {
         Thread.sleep(3000);
         Assert.assertNull(client.getDevice(device.getDeviceId()));
 
+        client.stopHeartbeat();
+    }
+
+    @Test
+    public void testCustomHeartbeat() throws ModbusException, InterruptedException {
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"127.0.0.1", testPort}, 1000);
+        ModbusDevice device = client.connectDevice(config);
+
+        // 设置自定义心跳策略：读取 10 号寄存器
+        java.util.concurrent.atomic.AtomicInteger pingCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        device.setHeartbeatStrategy(d -> {
+            pingCount.incrementAndGet();
+            d.sendRequest(1, 3, 10, 1);
+        });
+
+        client.startHeartbeat(1);
+        // 等待至少两次心跳
+        Thread.sleep(2500);
+
+        Assert.assertTrue("自定义心跳执行次数应大于 0", pingCount.get() > 0);
         client.stopHeartbeat();
     }
 

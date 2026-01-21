@@ -37,11 +37,12 @@ mod4j
 - **多设备管理**: `ModbusClient` 内部维护连接池，支持同时连接多个 Modbus 设备。
 - **批量异步操作**: 提供 `batchConnectDevices` 和 `batchDisconnectDevices` 方法，利用多线程提升大规模设备管理效率。
 - **常连接与自愈**: 支持将设备标记为“常连接”，在网络抖动或设备掉线时自动进行无限次重连尝试，确保关键连接的持久性。
+- **异步/同步双支持**: 同时支持传统的阻塞同步调用和现代的 `CompletableFuture` 异步调用，适应不同并发编程模型。
 - **并发安全**: 核心通信逻辑采用同步锁机制，确保在多线程环境下对同一设备的指令收发是顺序执行的。
 - **阻塞同步响应**: 封装了复杂的 IO 操作，调用者可像调用普通函数一样同步获取从站响应。
 - **细粒度异常处理**: 支持捕获超时异常 (`ModbusTimeoutException`) 和 IO 异常 (`ModbusIOException`)。
 - **内置模拟器**: 提供 `ModbusTcpSimulator` 和 `ModbusRtuSimulator`，方便在无硬件环境下进行开发测试。
-- **心跳检测开关**: 每个设备支持独立开启或关闭心跳检测，提高灵活性。
+- **自定义心跳检测**: 支持用户自行设置心跳检测方法（通过 `HeartbeatStrategy`），并可独立开启或关闭每个设备的心跳检测。
 - **健壮的资源管理**: 优化了 `disconnect` 逻辑，确保即使部分资源关闭异常，其他资源也能被正确清理。
 - **完善的串口读取**: 改进了 RTU 模式下的串口读取机制，增加分包等待和可用数据检测，提升通信稳定性。
 - **协议支持**:
@@ -64,12 +65,23 @@ void fun() {
         DeviceConfig config = new DeviceConfig(DeviceType.TCP, new Object[]{"192.168.1.10", 502}, 5000);
         // 连接单个设备
         ModbusDevice tcpDevice = client.connectDevice(config);
+        // 设置自定义心跳策略（可选）
+        tcpDevice.setHeartbeatStrategy(device -> {
+            System.out.println("[mod4j] 执行自定义心跳...");
+            device.sendRequest(1, 3, 0, 1);
+        });
         // 标记为常连接设备（自动重连且不自动移除）
         client.markAsPersistent(tcpDevice.getDeviceId());
         // 可选：关闭心跳检测
         // tcpDevice.setHeartbeatEnabled(false);
-        // 发送指令
-        byte[] response = tcpDevice.sendRequest(1, 3, 0, 10);
+        // 发送异步指令
+        client.getDevice(tcpDevice.getDeviceId()).sendRequestAsync(1, 3, 0, 10)
+              .thenAccept(resp -> System.out.println("[mod4j] 异步获取响应长度: " + resp.length))
+              .exceptionally(ex -> {
+                  System.err.println("[mod4j] 异步请求失败: " + ex.getMessage());
+                  return null;
+              });
+
     } catch (ModbusException e) {
         System.err.println("[mod4j] 错误: " + e.getMessage());
     }

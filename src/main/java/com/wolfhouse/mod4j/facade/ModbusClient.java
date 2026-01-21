@@ -139,6 +139,8 @@ public class ModbusClient {
         }
 
         device.connect(config);
+        device.setClient(this);
+        
         connectedDevices.put(device.getDeviceId(), device);
         return device;
     }
@@ -278,6 +280,16 @@ public class ModbusClient {
             }
         } catch (InterruptedException e) {
             operationExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * 获取业务操作执行线程池
+     *
+     * @return 线程池
+     */
+    public ExecutorService getOperationExecutor() {
+        return operationExecutor;
     }
 }

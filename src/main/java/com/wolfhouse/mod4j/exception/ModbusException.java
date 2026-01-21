@@ -5,7 +5,7 @@ package com.wolfhouse.mod4j.exception;
  *
  * @author Rylin Wolf
  */
-public class ModbusException extends Exception {
+public class ModbusException extends RuntimeException {
     /**
      * 构造函数
      *
@@ -23,5 +23,14 @@ public class ModbusException extends Exception {
      */
     public ModbusException(String message, Throwable cause) {
         super(message, cause);
+    }
+
+    /**
+     * 构造函数
+     *
+     * @param cause 异常原因
+     */
+    public ModbusException(Throwable cause) {
+        super(cause);
     }
 }

@@ -3,6 +3,7 @@ package com.wolfhouse.mod4j.device;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
 import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
+import com.wolfhouse.mod4j.facade.ModbusClient;
 import com.wolfhouse.mod4j.utils.ModbusProtocolUtils;
 
 import java.io.IOException;
@@ -55,7 +56,12 @@ public class TcpModbusDevice implements ModbusDevice {
     /**
      * 是否开启心跳检测
      */
-    private boolean heartbeatEnabled = true;
+    private boolean           heartbeatEnabled  = true;
+    /**
+     * 心跳策略，默认为读取 0 号寄存器
+     */
+    private HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
+    private ModbusClient      client;
 
     @Override
     public synchronized void connect(DeviceConfig config) throws ModbusException {
@@ -155,7 +161,7 @@ public class TcpModbusDevice implements ModbusDevice {
     private byte[] readResponse() throws IOException, ModbusException {
         // 读取响应头。Modbus TCP 响应头有 7 字节 (MBAP 头)
         // Transaction ID (2), Protocol ID (2), Length (2), Unit ID (1)
-        byte[] header = readNBytes(7);
+        byte[] header = readBytes(7);
 
         // 第 5-6 字节是后续长度 (包含 Unit ID 和 PDU)
         int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
@@ -166,7 +172,7 @@ public class TcpModbusDevice implements ModbusDevice {
 
         // 读取剩余部分 (PDU)
         // 已经读取了 Unit ID (header[6]), 所以还需要读取 length - 1 字节
-        byte[] pdu = readNBytes(length - 1);
+        byte[] pdu = readBytes(length - 1);
 
         byte[] fullResponse = new byte[7 + pdu.length];
         System.arraycopy(header, 0, fullResponse, 0, 7);
@@ -182,7 +188,7 @@ public class TcpModbusDevice implements ModbusDevice {
      * @throws IOException     IO 异常
      * @throws ModbusException 连接关闭异常
      */
-    private byte[] readNBytes(int n) throws IOException, ModbusException {
+    private byte[] readBytes(int n) throws IOException, ModbusException {
         byte[] data      = new byte[n];
         int    totalRead = 0;
         while (totalRead < n) {
@@ -193,6 +199,38 @@ public class TcpModbusDevice implements ModbusDevice {
             totalRead += read;
         }
         return data;
+    }
+
+    /**
+     * 设置关联的客户端（用于获取线程池）
+     */
+    @Override
+    public void setClient(ModbusClient client) {
+        this.client = client;
+    }
+
+    @Override
+    public java.util.concurrent.CompletableFuture<byte[]> sendRawRequestAsync(byte[] command) {
+        java.util.concurrent.Executor executor = (client != null) ? client.getOperationExecutor() : java.util.concurrent.ForkJoinPool.commonPool();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                return sendRawRequest(command);
+            } catch (ModbusException e) {
+                throw new RuntimeException(e);
+            }
+        }, executor);
+    }
+
+    @Override
+    public java.util.concurrent.CompletableFuture<byte[]> sendRequestAsync(int slaveId, int funcCode, int address, int quantity) {
+        java.util.concurrent.Executor executor = (client != null) ? client.getOperationExecutor() : java.util.concurrent.ForkJoinPool.commonPool();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                return sendRequest(slaveId, funcCode, address, quantity);
+            } catch (ModbusException e) {
+                throw new RuntimeException(e);
+            }
+        }, executor);
     }
 
     @Override
@@ -220,9 +258,22 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public void ping() throws ModbusException {
-        // 使用 0x03 功能码读取地址 0 的 1 个寄存器作为心跳
-        // slaveId 默认为 1
-        sendRequest(1, 3, 0, 1);
+        if (heartbeatStrategy != null) {
+            heartbeatStrategy.execute(this);
+        } else {
+            // 回退到默认逻辑
+            sendRequest(1, 3, 0, 1);
+        }
+    }
+
+    @Override
+    public HeartbeatStrategy getHeartbeatStrategy() {
+        return heartbeatStrategy;
+    }
+
+    @Override
+    public void setHeartbeatStrategy(HeartbeatStrategy strategy) {
+        this.heartbeatStrategy = strategy;
     }
 
     @Override
