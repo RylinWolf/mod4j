@@ -100,9 +100,8 @@ public class SerialModbusDevice implements ModbusDevice {
         try {
             this.serialPort = SerialPort.getCommPort(portName);
         } catch (SerialPortInvalidPortException e) {
-            System.err.printf("[mod4j] 串口不可用: %s, throws: %s%n", portName, e.getMessage());
             clearStatements();
-            return;
+            throw new ModbusIOException("[mod4j] 串口不可用: %s, throws: %s".formatted(portName, e.getMessage()));
         }
         this.serialPort.setBaudRate(baudRate);
         this.serialPort.setParity(serialConfig.getParity());

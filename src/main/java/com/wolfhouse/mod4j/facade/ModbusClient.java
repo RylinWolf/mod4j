@@ -278,7 +278,7 @@ public class ModbusClient {
                 try {
                     listener.onEvent(event);
                 } catch (Exception e) {
-                    System.err.println("[mod4j] 事件处理异常: " + e.getMessage());
+                    System.err.printf("[mod4j] 事件 {%s} 处理异常: %s%n", event, e.getMessage());
                 }
             }
         }, operationExecutor);
