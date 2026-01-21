@@ -6,6 +6,8 @@ import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.SerialDeviceConfig;
 import com.wolfhouse.mod4j.device.conf.TcpDeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.event.DeviceConnectedEvent;
+import com.wolfhouse.mod4j.event.DeviceDisconnectedEvent;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.utils.ModbusRtuSimulator;
 import com.wolfhouse.mod4j.utils.ModbusTcpSimulator;
@@ -18,7 +20,7 @@ import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.util.Arrays;
-import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * ModbusClient 测试类
@@ -47,19 +49,19 @@ public class ModbusClientTest {
         }
     }
 
-    @Test
-    public void startTcpSimulator() {
-        Scanner scanner = new Scanner(System.in);
-        try {
-            while (true) {
-                if (scanner.nextLine().equals("y")) {
-                    break;
-                }
-            }
-        } finally {
-            simulator.stop();
-        }
-    }
+    //@Test
+    //public void startTcpSimulator() {
+    //    Scanner scanner = new Scanner(System.in);
+    //    try {
+    //        while (true) {
+    //            if (scanner.nextLine().equals("y")) {
+    //                break;
+    //            }
+    //        }
+    //    } finally {
+    //        simulator.stop();
+    //    }
+    //}
 
     @Test
     public void testConnectAndRequest() throws ModbusException {
@@ -249,5 +251,33 @@ public class ModbusClientTest {
         } finally {
             rtuSimulator.stop();
         }
+    }
+
+    @Test
+    public void testEventMechanism() throws ModbusException, InterruptedException {
+        AtomicInteger connectCount    = new AtomicInteger(0);
+        AtomicInteger disconnectCount = new AtomicInteger(0);
+
+        client.addEventListener(event -> {
+            if (event instanceof DeviceConnectedEvent) {
+                connectCount.incrementAndGet();
+            } else if (event instanceof DeviceDisconnectedEvent) {
+                disconnectCount.incrementAndGet();
+            }
+        });
+
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 2000, new TcpDeviceConfig("127.0.0.1", testPort));
+
+        // 触发连接事件
+        ModbusDevice device = client.connectDevice(config);
+        Thread.sleep(500); // 异步发布，稍作等待
+
+        Assert.assertEquals(1, connectCount.get());
+
+        // 触发断开事件
+        client.disconnectDevice(device.getDeviceId());
+        Thread.sleep(500); // 异步发布，稍作等待
+
+        Assert.assertEquals(1, disconnectCount.get());
     }
 }

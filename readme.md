@@ -46,6 +46,8 @@ mod4j
 - **自定义心跳检测**: 支持用户自行设置心跳检测方法（通过 `HeartbeatStrategy`），并可独立开启或关闭每个设备的心跳检测。
 - **健壮的资源管理**: 优化了 `disconnect` 逻辑，确保即使部分资源关闭异常，其他资源也能被正确清理。
 - **完善的串口读取**: 改进了 RTU 模式下的串口读取机制，增加分包等待和可用数据检测，提升通信稳定性。
+- **事件驱动机制**: 新增事件总线功能，支持监听设备连接 (`DeviceConnectedEvent`) 和断开 (`DeviceDisconnectedEvent`)
+  状态，实现业务与协议层的解耦。
 - **协议支持**:
     - 内置 CRC16 校验，支持标准 Modbus RTU。
     - 支持标准 Modbus TCP 报文格式，自动处理事务标识符。
@@ -73,6 +75,14 @@ void fun() {
         });
         // 标记为常连接设备（自动重连且不自动移除）
         client.markAsPersistent(tcpDevice.getDeviceId());
+        // 注册事件监听器
+        client.addEventListener(event -> {
+            if (event instanceof DeviceConnectedEvent) {
+                System.out.println("[mod4j] 监听到设备连接成功: " + event.getDeviceId());
+            } else if (event instanceof DeviceDisconnectedEvent) {
+                System.out.println("[mod4j] 监听到设备断开连接: " + event.getDeviceId());
+            }
+        });
         // 可选：关闭心跳检测
         // tcpDevice.setHeartbeatEnabled(false);
         // 发送异步指令

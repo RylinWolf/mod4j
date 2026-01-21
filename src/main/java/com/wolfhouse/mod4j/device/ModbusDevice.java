@@ -145,11 +145,11 @@ public interface ModbusDevice {
     void setHeartbeatStrategy(HeartbeatStrategy strategy);
 
     /**
-     * 设置关联的客户端（用于获取线程池）
+     * 设置关联的客户端（用于获取线程池和发布事件）
      *
      * @param client ModbusClient 门面类
      */
-    default void setClient(com.wolfhouse.mod4j.facade.ModbusClient client) {
+    default void setClient(ModbusClient client) {
     }
 
     /**

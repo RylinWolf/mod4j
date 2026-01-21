@@ -5,6 +5,10 @@ import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.device.TcpModbusDevice;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.event.AbstractModbusEvent;
+import com.wolfhouse.mod4j.event.DeviceConnectedEvent;
+import com.wolfhouse.mod4j.event.DeviceDisconnectedEvent;
+import com.wolfhouse.mod4j.event.ModbusEventListener;
 import com.wolfhouse.mod4j.exception.ModbusException;
 
 import java.util.*;
@@ -20,6 +24,10 @@ public class ModbusClient {
      * 已连接设备池，使用 ConcurrentHashMap 保证线程安全
      */
     private final Map<String, ModbusDevice> connectedDevices = new ConcurrentHashMap<>();
+    /**
+     * 事件监听器集合
+     */
+    private final List<ModbusEventListener> listeners        = new CopyOnWriteArrayList<>();
 
     /**
      * 常连接设备 ID 集合
@@ -102,6 +110,7 @@ public class ModbusClient {
                 System.out.println("[mod4j] 尝试恢复设备连接: " + deviceId);
                 device.refresh();
                 System.out.println("[mod4j] 设备恢复成功: " + deviceId);
+                publishEvent(new DeviceConnectedEvent(device));
                 break;
             } catch (ModbusException re) {
                 System.err.println("[mod4j] 设备恢复失败: " + deviceId + ", 错误: " + re.getMessage());
@@ -156,6 +165,7 @@ public class ModbusClient {
         device.setClient(this);
 
         connectedDevices.put(device.getDeviceId(), device);
+        publishEvent(new DeviceConnectedEvent(device));
         return device;
     }
 
@@ -188,6 +198,7 @@ public class ModbusClient {
         persistentDevices.remove(deviceId);
         if (device != null) {
             device.disconnect();
+            publishEvent(new DeviceDisconnectedEvent(device));
         }
     }
 
@@ -229,6 +240,46 @@ public class ModbusClient {
     public void unmarkAsPersistent(String deviceId) {
         persistentDevices.remove(deviceId);
         System.out.println("[mod4j] 设备已取消常连接标记: " + deviceId);
+    }
+
+    /**
+     * 添加事件监听器
+     *
+     * @param listener 事件监听器
+     */
+    public void addEventListener(ModbusEventListener listener) {
+        if (listener != null) {
+            listeners.add(listener);
+        }
+    }
+
+    /**
+     * 移除事件监听器
+     *
+     * @param listener 事件监听器
+     */
+    public void removeEventListener(ModbusEventListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * 发布事件
+     *
+     * @param event Modbus 事件
+     */
+    private void publishEvent(AbstractModbusEvent event) {
+        if (listeners.isEmpty()) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            for (ModbusEventListener listener : listeners) {
+                try {
+                    listener.onEvent(event);
+                } catch (Exception e) {
+                    System.err.println("[mod4j] 事件处理异常: " + e.getMessage());
+                }
+            }
+        }, operationExecutor);
     }
 
     /**
