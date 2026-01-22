@@ -28,6 +28,7 @@ public record DeviceConfig(DeviceType type, int timeout, AbstractDeviceConfig co
         return switch (type) {
             case RTU -> "RTU:" + ((SerialDeviceConfig) config).getPort();
             case TCP -> "TCP:" + ((TcpDeviceConfig) config).getIp() + ":" + ((TcpDeviceConfig) config).getPort();
+            case TCP_RTU -> "TCP_RTU:" + ((TcpDeviceConfig) config).getIp() + ":" + ((TcpDeviceConfig) config).getPort();
         };
     }
 }

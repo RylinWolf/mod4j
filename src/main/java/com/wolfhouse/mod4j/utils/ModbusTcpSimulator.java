@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,7 +45,7 @@ public class ModbusTcpSimulator {
 
         if (functionCode == 0x03) {
             // 模拟返回：字节数(2), 数据(00 01)
-            responsePdu = new byte[]{0x03, 0x02, 0x00, 0x01};
+            responsePdu = new byte[]{0x03, 0x02, 0x31, 0x11};
         } else if (functionCode == 0x01) {
             // 模拟返回：字节数(1), 数据(01)
             responsePdu = new byte[]{0x01, 0x01, 0x01};
@@ -105,48 +106,98 @@ public class ModbusTcpSimulator {
     private void handleClient(Socket socket) {
         try (socket; InputStream is = socket.getInputStream();
              OutputStream os = socket.getOutputStream()) {
-            try {
+            byte[] buffer = new byte[1024];
+            while (running.get()) {
+                int read = is.read(buffer);
+                if (read == -1) {
+                    break;
+                }
 
-                byte[] header = new byte[7];
-                while (running.get() && is.read(header) != -1) {
-                    // 解析长度 (MBAP header: Unit ID 之后的所有内容长度)
-                    int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
-
-                    // 读取 PDU (包含 Unit ID，所以是 length 字节，但 header 已经读了 Unit ID 了吗？)
-                    // 修正：TcpModbusDevice.java 中 header 读了 7 字节，包含 Unit ID
-                    // 所以还需要读 length - 1 字节
-                    byte[] pdu  = new byte[length - 1];
-                    int    read = is.read(pdu);
-                    if (read == -1) {
-                        break;
-                    }
-
-                    // 简单的模拟响应：根据功能码返回固定数据
-                    // 假设是读取保持寄存器 (03) 或 读取线圈 (01)
-                    byte[] responsePdu = getBytes(pdu);
-
-                    // 构建响应报文
-                    byte[] response = new byte[7 + responsePdu.length];
-                    // 复制 Transaction ID, Protocol ID
-                    System.arraycopy(header, 0, response, 0, 4);
-                    // 设置新长度 (Unit ID + responsePdu)
-                    int newLength = 1 + responsePdu.length;
-                    response[4] = (byte) ((newLength >> 8) & 0xFF);
-                    response[5] = (byte) (newLength & 0xFF);
-                    // Unit ID
-                    response[6] = header[6];
-                    // PDU
-                    System.arraycopy(responsePdu, 0, response, 7, responsePdu.length);
-
+                byte[] request = new byte[read];
+                System.arraycopy(buffer, 0, request, 0, read);
+                System.out.printf("收到请求: %s%n", Arrays.toString(request));
+                byte[] response;
+                // 假设是 RTU 设备
+                //if (isTcpPacket(request)) {
+                //    response = handleTcpRequest(request);
+                //} else {
+                //    response = handleRtuRequest(request);
+                //}
+                response = handleRtuRequest(request);
+                if (response != null) {
                     os.write(response);
                     os.flush();
                 }
-            } catch (IOException e) {
-                if (running.get()) {
-                    System.out.println("[mod4j] 模拟器处理客户端连接异常: " + e.getMessage());
-                }
+                System.out.printf("发送响应: %s%n", Arrays.toString(response));
             }
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            if (running.get()) {
+                System.out.println("[mod4j] 模拟器处理客户端连接异常: " + e.getMessage());
+            }
         }
+    }
+
+    private boolean isTcpPacket(byte[] data) {
+        if (data.length < 7) {
+            return false;
+        }
+        // Protocol ID (bytes 2-3) should be 0 for Modbus TCP
+        if (data[2] != 0 || data[3] != 0) {
+            return false;
+        }
+        // Length (bytes 4-5)
+        int length = ((data[4] & 0xFF) << 8) | (data[5] & 0xFF);
+        return length == data.length - 6;
+    }
+
+    private byte[] handleTcpRequest(byte[] request) {
+        // MBAP(7) + PDU
+        byte[] pdu = new byte[request.length - 7];
+        System.arraycopy(request, 7, pdu, 0, pdu.length);
+        byte[] responsePdu = getBytes(pdu);
+
+        byte[] response = new byte[7 + responsePdu.length];
+        System.arraycopy(request, 0, response, 0, 4); // TID, PID
+        int newLength = 1 + responsePdu.length;
+        response[4] = (byte) ((newLength >> 8) & 0xFF);
+        response[5] = (byte) (newLength & 0xFF);
+        response[6] = request[6]; // Unit ID
+        System.arraycopy(responsePdu, 0, response, 7, responsePdu.length);
+        return response;
+    }
+
+    private byte[] handleRtuRequest(byte[] request) {
+        if (request.length < 4) {
+            return null;
+        }
+        // SlaveID(1) + Func(1) + Data(n) + CRC(2)
+        byte[] pdu = new byte[request.length - 3]; // SlaveID + Func + Data
+        System.arraycopy(request, 0, pdu, 0, pdu.length);
+
+        // Simple CRC check (optional for simulator but good)
+        int receivedCrc   = ((request[request.length - 1] & 0xFF) << 8) | (request[request.length - 2] & 0xFF);
+        int calculatedCrc = ModbusProtocolUtils.calculateCrc(request, 0, request.length - 2);
+        if (receivedCrc != calculatedCrc) {
+            System.err.println("[mod4j] 模拟器收到错误的 RTU CRC");
+            // return null; // Or handle it
+        }
+
+        // PDU for getBytes starts with Function Code, which is at request[1]
+        byte[] innerPdu = new byte[request.length - 4];
+        System.arraycopy(request, 1, innerPdu, 0, innerPdu.length);
+        // getBytes expects Function Code as first byte
+        byte[] funcAndData = new byte[request.length - 3];
+        System.arraycopy(request, 1, funcAndData, 0, funcAndData.length);
+
+        byte[] responseInnerPdu = getBytes(funcAndData);
+
+        // RTU Response: SlaveID(1) + PDU + CRC(2)
+        byte[] response = new byte[1 + responseInnerPdu.length + 2];
+        response[0] = request[0];
+        System.arraycopy(responseInnerPdu, 0, response, 1, responseInnerPdu.length);
+        int crc = ModbusProtocolUtils.calculateCrc(response, 0, 1 + responseInnerPdu.length);
+        response[response.length - 2] = (byte) (crc & 0xFF);
+        response[response.length - 1] = (byte) ((crc >> 8) & 0xFF);
+        return response;
     }
 }

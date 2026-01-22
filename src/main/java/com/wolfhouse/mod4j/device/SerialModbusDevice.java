@@ -16,7 +16,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 串口设备实现
@@ -225,32 +224,9 @@ public class SerialModbusDevice implements ModbusDevice {
 
         // 循环读取，直到没有更多数据或总时间超过 2 倍超时时间（防止死循环）
         // 串口数据可能会分片到达
-        while (System.currentTimeMillis() - startTime < timeout * 2L) {
-            int available = inputStream.available();
-            if (available > 0) {
-                int nextRead = inputStream.read(buffer, totalRead, Math.min(available, buffer.length - totalRead));
-                if (nextRead > 0) {
-                    totalRead += nextRead;
-                }
-            } else {
-                // 如果当前没有可用数据，稍微等待一下看看是否还有后续
-                try {
-                    TimeUnit.MILLISECONDS.sleep(10);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                if (inputStream.available() == 0) {
-                    // 确实没有后续数据了，认为读取完成
-                    break;
-                }
-            }
-        }
-
-        byte[] response = new byte[totalRead];
-        System.arraycopy(buffer, 0, response, 0, totalRead);
-        return response;
+        return readBuffer(inputStream, timeout, startTime, buffer, totalRead);
     }
+
 
     /**
      * 设置关联的客户端（用于获取线程池）

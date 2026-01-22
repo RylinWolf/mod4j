@@ -14,6 +14,7 @@ import lombok.Getter;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Modbus SDK 门面类，用于管理已连接设备并提供统一的通信入口
@@ -157,7 +158,7 @@ public class ModbusClient {
         ModbusDevice device;
         if (config.type() == DeviceType.RTU) {
             device = new SerialModbusDevice();
-        } else if (config.type() == DeviceType.TCP) {
+        } else if (config.type() == DeviceType.TCP || config.type() == DeviceType.TCP_RTU) {
             device = new TcpModbusDevice();
         } else {
             throw new ModbusException("[mod4j] 不支持的设备类型");
@@ -176,17 +177,42 @@ public class ModbusClient {
      *
      * @param configs 设备配置集合
      */
-    public void batchConnectDevices(Collection<DeviceConfig> configs) {
+    public boolean batchConnectDevices(Collection<DeviceConfig> configs) {
+        AtomicBoolean success = new AtomicBoolean(true);
         List<CompletableFuture<Void>> futures = configs.stream()
                                                        .map(config -> CompletableFuture.runAsync(() -> {
                                                            try {
                                                                connectDevice(config);
                                                            } catch (ModbusException e) {
                                                                System.err.println("[mod4j] 批量连接设备失败: " + config.getDeviceId() + ", " + e.getMessage());
+                                                               success.set(false);
                                                            }
                                                        }, operationExecutor))
                                                        .toList();
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        return success.get();
+    }
+
+    /**
+     * 批量连接 常连接设备
+     *
+     * @param configs 设备配置集合
+     */
+    public boolean batchConnectPersistentDevices(Collection<DeviceConfig> configs) {
+        AtomicBoolean success = new AtomicBoolean(true);
+        List<CompletableFuture<Void>> futures = configs.stream()
+                                                       .map(config -> CompletableFuture.runAsync(() -> {
+                                                           try {
+                                                               connectDevice(config);
+                                                               markAsPersistent(config.getDeviceId());
+                                                           } catch (ModbusException e) {
+                                                               System.err.println("[mod4j] 批量连接设备失败: " + config.getDeviceId() + ", " + e.getMessage());
+                                                               success.set(false);
+                                                           }
+                                                       }, operationExecutor))
+                                                       .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        return success.get();
     }
 
     /**

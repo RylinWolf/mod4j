@@ -5,10 +5,13 @@ import com.wolfhouse.mod4j.enums.DeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.facade.ModbusClient;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -188,5 +191,44 @@ public interface ModbusDevice {
             System.err.println("[mod4j] 线程池执行异步任务失败! " + e.getMessage());
             throw new ModbusException(e);
         });
+    }
+
+    /**
+     * 从输入流中读取字节数据，直到指定的超时时间或数据读取完成。
+     *
+     * @param inputStream 输入流，用于读取数据。
+     * @param timeout     读取操作的超时时间（毫秒）。
+     * @param startTime   开始读取的时间戳（毫秒）。
+     * @param buffer      存储已读取数据的缓冲区。
+     * @param totalRead   已经读取的字节数量，用于标识写入缓冲区的位置。
+     * @return 已成功读取的完整字节数组。
+     * @throws IOException 当读取输入流时发生 IO 异常。
+     */
+    default byte[] readBuffer(InputStream inputStream, int timeout, long startTime, byte[] buffer, int totalRead) throws IOException {
+        while (System.currentTimeMillis() - startTime < timeout * 2L) {
+            int available = inputStream.available();
+            if (available > 0) {
+                int nextRead = inputStream.read(buffer, totalRead, Math.min(available, buffer.length - totalRead));
+                if (nextRead > 0) {
+                    totalRead += nextRead;
+                }
+            } else {
+                // 如果当前没有可用数据，稍微等待一下看看是否还有后续
+                try {
+                    TimeUnit.MILLISECONDS.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                if (inputStream.available() == 0) {
+                    // 确实没有后续数据了，认为读取完成
+                    break;
+                }
+            }
+        }
+
+        byte[] response = new byte[totalRead];
+        System.arraycopy(buffer, 0, response, 0, totalRead);
+        return response;
     }
 }

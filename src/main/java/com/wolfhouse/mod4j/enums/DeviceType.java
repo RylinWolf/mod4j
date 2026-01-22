@@ -14,6 +14,11 @@ public enum DeviceType {
     /**
      * 以太网 TCP 模式
      */
-    TCP
+    TCP,
+
+    /**
+     * 以太网 TCP (RTU 报文) 模式
+     */
+    TCP_RTU
 }
 

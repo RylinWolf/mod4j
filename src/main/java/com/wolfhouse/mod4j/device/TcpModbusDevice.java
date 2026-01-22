@@ -39,6 +39,11 @@ public class TcpModbusDevice implements ModbusDevice {
     private int port;
 
     /**
+     * 设备类型 (TCP 或 TCP_RTU)
+     */
+    private DeviceType deviceType;
+
+    /**
      * 超时时间
      */
     private int timeout = DEFAULT_TIMEOUT;
@@ -84,10 +89,11 @@ public class TcpModbusDevice implements ModbusDevice {
         checkSupported(config);
         try {
             TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
-            this.ip      = tcpConfig.getIp();
-            this.port    = tcpConfig.getPort();
-            this.timeout = config.timeout();
-            System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port);
+            this.ip         = tcpConfig.getIp();
+            this.port       = tcpConfig.getPort();
+            this.timeout    = config.timeout();
+            this.deviceType = config.type();
+            System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port + " 类型: " + deviceType);
 
             this.socket = new Socket(ip, port);
             this.socket.setSoTimeout(this.timeout);
@@ -143,7 +149,7 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new DeviceConfig(com.wolfhouse.mod4j.enums.DeviceType.TCP, timeout, new TcpDeviceConfig(ip, port)));
+        connect(new DeviceConfig(deviceType, timeout, new TcpDeviceConfig(ip, port)));
     }
 
     @Override
@@ -160,8 +166,8 @@ public class TcpModbusDevice implements ModbusDevice {
             outputStream.write(command);
             outputStream.flush();
 
-            // 读取并构造完整响应
-            return readResponse();
+            // 根据模式读取并构造完整响应
+            return (deviceType == DeviceType.TCP) ? readResponse() : readRtuResponse();
         } catch (SocketTimeoutException e) {
             throw new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
         } catch (IOException e) {
@@ -196,6 +202,28 @@ public class TcpModbusDevice implements ModbusDevice {
         System.arraycopy(header, 0, fullResponse, 0, 7);
         System.arraycopy(pdu, 0, fullResponse, 7, pdu.length);
         return fullResponse;
+    }
+
+    /**
+     * 读取 Modbus RTU (over TCP) 响应
+     *
+     * @return 完整响应报文
+     * @throws IOException IO 异常
+     */
+    private byte[] readRtuResponse() throws IOException {
+        byte[] buffer    = new byte[1024];
+        long   startTime = System.currentTimeMillis();
+        int    totalRead = 0;
+
+        // 阻塞读取第一个字节
+        int firstByte = inputStream.read();
+        if (firstByte == -1) {
+            throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败");
+        }
+        buffer[totalRead++] = (byte) firstByte;
+
+        // 循环读取，直到没有更多数据或总时间超过 2 倍超时时间
+        return readBuffer(inputStream, timeout, startTime, buffer, totalRead);
     }
 
     /**
@@ -256,7 +284,9 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
-        byte[] command = ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
+        byte[] command = (deviceType == DeviceType.TCP)
+                ? ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity)
+                : ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
         return sendRawRequest(command);
     }
 
@@ -297,11 +327,11 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     @Override
     public String getDeviceId() {
-        return "TCP:" + ip + ":" + port;
+        return (deviceType == DeviceType.TCP ? "TCP:" : "TCP_RTU:") + ip + ":" + port;
     }
 
     @Override
     public Set<DeviceType> supportedDeviceTypes() {
-        return Set.of(DeviceType.TCP);
+        return Set.of(DeviceType.TCP, DeviceType.TCP_RTU);
     }
 }

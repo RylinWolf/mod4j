@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.util.Arrays;
+import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -49,19 +50,19 @@ public class ModbusClientTest {
         }
     }
 
-    //@Test
-    //public void startTcpSimulator() {
-    //    Scanner scanner = new Scanner(System.in);
-    //    try {
-    //        while (true) {
-    //            if (scanner.nextLine().equals("y")) {
-    //                break;
-    //            }
-    //        }
-    //    } finally {
-    //        simulator.stop();
-    //    }
-    //}
+    @Test
+    public void startTcpSimulator() {
+        Scanner scanner = new Scanner(System.in);
+        try {
+            while (true) {
+                if (scanner.nextLine().equals("y")) {
+                    break;
+                }
+            }
+        } finally {
+            simulator.stop();
+        }
+    }
 
     @Test
     public void testConnectAndRequest() throws ModbusException {
@@ -251,6 +252,25 @@ public class ModbusClientTest {
         } finally {
             rtuSimulator.stop();
         }
+    }
+
+    @Test
+    public void testTcpRtuMode() throws ModbusException {
+        // 测试 TCP_RTU 模式
+        DeviceConfig config = new DeviceConfig(DeviceType.TCP_RTU, 2000, new TcpDeviceConfig("127.0.0.1", testPort));
+        ModbusDevice device = client.connectDevice(config);
+        Assert.assertNotNull(device);
+        Assert.assertTrue(device.getDeviceId().startsWith("TCP_RTU:"));
+
+        // 发送请求
+        byte[] response = device.sendRequest(1, 3, 0, 1);
+        Assert.assertNotNull(response);
+        // RTU: SlaveID(1) + Func(1) + ByteCount(1) + Data(2) + CRC(2) = 7
+        Assert.assertEquals(7, response.length);
+        Assert.assertEquals(3, response[1]);
+        Assert.assertEquals(2, response[2]);
+
+        client.disconnectDevice(device.getDeviceId());
     }
 
     @Test

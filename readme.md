@@ -44,7 +44,9 @@ mod4j
 - **内置模拟器**: 提供 `ModbusTcpSimulator` 和 `ModbusRtuSimulator`，方便在无硬件环境下进行开发测试。
 - **协议支持**:
     - 内置 CRC16 校验，支持标准 Modbus RTU。
-    - 支持标准 Modbus TCP 报文格式，自动处理事务标识符。
+    - 支持标准 Modbus TCP 报文格式（含 MBAP 头）。
+    - 支持 Modbus RTU over TCP 模式（TCP 链路上发送 RTU 报文）。
+    - 自动处理 TCP 事务标识符。
 
 ## 快速开始
 
