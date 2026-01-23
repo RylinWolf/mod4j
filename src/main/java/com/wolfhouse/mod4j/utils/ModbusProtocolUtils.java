@@ -16,7 +16,7 @@ public class ModbusProtocolUtils {
     /**
      * 事务标识符上限
      */
-    private static final Integer TRANSACTION_ID_BOUND = 9999;
+    private static final Integer TRANSACTION_ID_BOUND = 0xFFFF;
 
     /**
      * 构建 Modbus RTU 请求报文（含 CRC 校验）
@@ -106,6 +106,6 @@ public class ModbusProtocolUtils {
      * @return 下一个事务标识符
      */
     public static Integer nextTransactionId() {
-        return TRANSACTION_ID.getAndUpdate(i -> (i >= TRANSACTION_ID_BOUND) ? 0 : i + 1);
+        return TRANSACTION_ID.getAndUpdate(i -> (i + 1) & TRANSACTION_ID_BOUND);
     }
 }

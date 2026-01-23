@@ -1,7 +1,7 @@
 package com.wolfhouse.mod4j.device;
 
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
-import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.enums.ModDeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.facade.ModbusClient;
 
@@ -160,7 +160,7 @@ public interface ModbusDevice {
      *
      * @return 支持的设备类型数组
      */
-    Set<DeviceType> supportedDeviceTypes();
+    Set<ModDeviceType> supportedDeviceTypes();
 
     /**
      * 检查设备配置是否支持当前设备类型
@@ -168,8 +168,8 @@ public interface ModbusDevice {
      * @param config 设备配置
      */
     default void checkSupported(DeviceConfig config) {
-        DeviceType      type      = config.type();
-        Set<DeviceType> supported = this.supportedDeviceTypes();
+        ModDeviceType      type      = config.devType();
+        Set<ModDeviceType> supported = this.supportedDeviceTypes();
         if (!supported.contains(type)) {
             throw new ModbusException("[mod4j] 当前 modbus 设备不支持该连接类型： [%s]！支持的类型包括：[%s]".formatted(type, supported));
         }

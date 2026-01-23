@@ -2,7 +2,8 @@ package com.wolfhouse.mod4j.device;
 
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.TcpDeviceConfig;
-import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.enums.CommunicationType;
+import com.wolfhouse.mod4j.enums.ModDeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
 import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
@@ -16,6 +17,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 /**
  * TCP 设备实现
@@ -39,9 +41,12 @@ public class TcpModbusDevice implements ModbusDevice {
     private int port;
 
     /**
-     * 设备类型 (TCP 或 TCP_RTU)
+     * 设备类型 (TCP 或 SERIAL)
      */
-    private DeviceType deviceType;
+    private ModDeviceType modDeviceType;
+
+    /** 通信类型 (RTU 或 TCP) */
+    private CommunicationType communicationType;
 
     /**
      * 超时时间
@@ -89,11 +94,12 @@ public class TcpModbusDevice implements ModbusDevice {
         checkSupported(config);
         try {
             TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
-            this.ip         = tcpConfig.getIp();
-            this.port       = tcpConfig.getPort();
-            this.timeout    = config.timeout();
-            this.deviceType = config.type();
-            System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port + " 类型: " + deviceType);
+            this.ip                = tcpConfig.getIp();
+            this.port              = tcpConfig.getPort();
+            this.timeout           = config.timeout();
+            this.modDeviceType     = config.devType();
+            this.communicationType = config.comType();
+            System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port + " 类型: " + communicationType);
 
             this.socket = new Socket(ip, port);
             this.socket.setSoTimeout(this.timeout);
@@ -149,7 +155,7 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new DeviceConfig(deviceType, timeout, new TcpDeviceConfig(ip, port)));
+        connect(new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port)));
     }
 
     @Override
@@ -157,22 +163,67 @@ public class TcpModbusDevice implements ModbusDevice {
         return socket != null && socket.isConnected() && !socket.isClosed();
     }
 
+    /**
+     * 发送原始字节指令
+     *
+     * @param command 原始字节指令
+     * @return 设备响应命令
+     * @throws ModbusException 失败时的异常
+     */
     @Override
     public synchronized byte[] sendRawRequest(byte[] command) throws ModbusException {
+        try {
+            return trySendRawRequest(command);
+        } catch (SocketTimeoutException e) {
+            throw new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
+        } catch (IOException | ModbusException e) {
+            System.err.printf("[mod4j] TCP 通信异常: %s, 正在重试...%n", e.getMessage());
+            return retryOnRefresh(() -> {
+                try {
+                    return this.trySendRawRequest(command);
+                } catch (IOException ex) {
+                    throw new ModbusIOException("[mod4j] 重试失败", ex);
+                }
+            });
+        }
+    }
+
+    /**
+     * 发送原始字节指令
+     *
+     * @param command 原始字节指令
+     * @return 设备响应命令
+     * @throws ModbusException 失败时的异常
+     * @throws IOException     IO 异常
+     */
+    private byte[] trySendRawRequest(byte[] command) throws ModbusException, IOException {
         if (!isConnected()) {
             throw new ModbusException("[mod4j] 设备未连接");
         }
-        try {
-            outputStream.write(command);
-            outputStream.flush();
+        outputStream.write(command);
+        outputStream.flush();
 
-            // 根据模式读取并构造完整响应
-            return (deviceType == DeviceType.TCP) ? readResponse() : readRtuResponse();
-        } catch (SocketTimeoutException e) {
-            throw new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
-        } catch (IOException e) {
-            throw new ModbusIOException("[mod4j] TCP 通信异常: " + e.getMessage(), e);
+        // 根据模式读取并构造完整响应
+        return switch (communicationType) {
+            case TCP -> readResponse();
+            case RTU -> readRtuResponse();
+        };
+    }
+
+
+    /**
+     * 刷新连接并重试
+     *
+     * @param supplier 要重试的操作
+     * @param <T>      返回类型
+     * @return 要重试的操作的返回值
+     */
+    private <T> T retryOnRefresh(Supplier<T> supplier) {
+        try {
+            refresh();
+        } catch (ModbusException ignored) {
         }
+        return supplier.get();
     }
 
     /**
@@ -284,9 +335,10 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
-        byte[] command = (deviceType == DeviceType.TCP)
-                ? ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity)
-                : ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
+        byte[] command = switch (communicationType) {
+            case TCP -> ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
+            case RTU -> ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
+        };
         return sendRawRequest(command);
     }
 
@@ -327,11 +379,11 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     @Override
     public String getDeviceId() {
-        return (deviceType == DeviceType.TCP ? "TCP:" : "TCP_RTU:") + ip + ":" + port;
+        return new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port)).getDeviceId();
     }
 
     @Override
-    public Set<DeviceType> supportedDeviceTypes() {
-        return Set.of(DeviceType.TCP, DeviceType.TCP_RTU);
+    public Set<ModDeviceType> supportedDeviceTypes() {
+        return Set.of(ModDeviceType.TCP);
     }
 }

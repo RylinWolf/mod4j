@@ -4,7 +4,7 @@ import com.wolfhouse.mod4j.device.ModbusDevice;
 import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.device.TcpModbusDevice;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
-import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.enums.ModDeviceType;
 import com.wolfhouse.mod4j.event.AbstractModbusEvent;
 import com.wolfhouse.mod4j.event.DeviceConnectedEvent;
 import com.wolfhouse.mod4j.event.DeviceDisconnectedEvent;
@@ -156,9 +156,9 @@ public class ModbusClient {
 
         // 2. 根据不同设备类型，创建设备实例并连接
         ModbusDevice device;
-        if (config.type() == DeviceType.RTU) {
+        if (config.devType() == ModDeviceType.SERIAL) {
             device = new SerialModbusDevice();
-        } else if (config.type() == DeviceType.TCP || config.type() == DeviceType.TCP_RTU) {
+        } else if (config.devType() == ModDeviceType.TCP) {
             device = new TcpModbusDevice();
         } else {
             throw new ModbusException("[mod4j] 不支持的设备类型");

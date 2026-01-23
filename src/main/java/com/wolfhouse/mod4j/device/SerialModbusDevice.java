@@ -4,7 +4,8 @@ import com.fazecast.jSerialComm.SerialPort;
 import com.fazecast.jSerialComm.SerialPortInvalidPortException;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.SerialDeviceConfig;
-import com.wolfhouse.mod4j.enums.DeviceType;
+import com.wolfhouse.mod4j.enums.CommunicationType;
+import com.wolfhouse.mod4j.enums.ModDeviceType;
 import com.wolfhouse.mod4j.exception.ModbusException;
 import com.wolfhouse.mod4j.exception.ModbusIOException;
 import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
@@ -43,6 +44,12 @@ public class SerialModbusDevice implements ModbusDevice {
      * 波特率
      */
     private              int          baudRate;
+    /** 校验位 */
+    private              int          parity;
+    /** 停止位 */
+    private              int          stopBits;
+    /** 数据位 */
+    private              int          dataBits;
     /**
      * 超时时间
      */
@@ -92,8 +99,11 @@ public class SerialModbusDevice implements ModbusDevice {
         // 解析参数
         SerialDeviceConfig serialConfig = (SerialDeviceConfig) config.config();
         this.portName = serialConfig.getPort();
-        this.baudRate = serialConfig.getBaudRate();
         this.timeout  = config.timeout();
+        this.baudRate = serialConfig.getBaudRate();
+        this.parity   = serialConfig.getParity();
+        this.stopBits = serialConfig.getStopBits();
+        this.dataBits = serialConfig.getDataBits();
         System.out.println("[mod4j] 正在连接串口: " + portName + " 波特率: " + baudRate);
 
         try {
@@ -103,9 +113,9 @@ public class SerialModbusDevice implements ModbusDevice {
             throw new ModbusIOException("[mod4j] 串口不可用: %s, throws: %s".formatted(portName, e.getMessage()));
         }
         this.serialPort.setBaudRate(baudRate);
-        this.serialPort.setParity(serialConfig.getParity());
-        this.serialPort.setNumStopBits(serialConfig.getStopBits());
-        this.serialPort.setNumDataBits(serialConfig.getDataBits());
+        this.serialPort.setParity(this.parity);
+        this.serialPort.setNumStopBits(this.stopBits);
+        this.serialPort.setNumDataBits(this.dataBits);
         this.serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, this.timeout, 0);
 
         if (this.serialPort.openPort()) {
@@ -166,7 +176,7 @@ public class SerialModbusDevice implements ModbusDevice {
     public synchronized void refresh() throws ModbusException {
         disconnect();
         if (serialPort != null) {
-            connect(new DeviceConfig(DeviceType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, 8, 1, 0)));
+            connect(new DeviceConfig(ModDeviceType.SERIAL, CommunicationType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, 8, 1, 0)));
         }
     }
 
@@ -303,11 +313,11 @@ public class SerialModbusDevice implements ModbusDevice {
      */
     @Override
     public String getDeviceId() {
-        return "RTU:" + portName;
+        return new DeviceConfig(ModDeviceType.SERIAL, CommunicationType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, dataBits, stopBits, parity)).getDeviceId();
     }
 
     @Override
-    public Set<DeviceType> supportedDeviceTypes() {
-        return Set.of(DeviceType.RTU);
+    public Set<ModDeviceType> supportedDeviceTypes() {
+        return Set.of(ModDeviceType.SERIAL);
     }
 }
