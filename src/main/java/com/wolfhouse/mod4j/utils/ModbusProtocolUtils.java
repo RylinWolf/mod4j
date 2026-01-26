@@ -18,6 +18,8 @@ public class ModbusProtocolUtils {
      */
     private static final Integer TRANSACTION_ID_BOUND = 0xFFFF;
 
+    private ModbusProtocolUtils() {}
+
     /**
      * 构建 Modbus RTU 请求报文（含 CRC 校验）
      *

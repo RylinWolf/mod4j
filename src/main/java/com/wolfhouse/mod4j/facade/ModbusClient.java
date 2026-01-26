@@ -21,25 +21,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * @author Rylin Wolf
  */
+@SuppressWarnings({"unused", "UnusedReturnValue"})
 public class ModbusClient {
     /**
      * 已连接设备池，使用 ConcurrentHashMap 保证线程安全
      */
-    private final Map<String, ModbusDevice> connectedDevices = new ConcurrentHashMap<>();
+    private final Map<String, ModbusDevice> connectedDevices  = new ConcurrentHashMap<>();
     /**
      * 事件监听器集合
      */
-    private final List<ModbusEventListener> listeners        = new CopyOnWriteArrayList<>();
-
+    private final List<ModbusEventListener> listeners         = new CopyOnWriteArrayList<>();
     /**
      * 常连接设备 ID 集合
      */
-    private final Set<String>              persistentDevices = ConcurrentHashMap.newKeySet();
+    private final Set<String>               persistentDevices = ConcurrentHashMap.newKeySet();
     /**
      * 业务操作执行线程池（用于批量连接/断开）
      */
     @Getter
-    private final ExecutorService          operationExecutor = Executors.newCachedThreadPool(r -> {
+    private final ExecutorService           operationExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "mod4j-operation");
         t.setDaemon(true);
         return t;
@@ -47,7 +47,7 @@ public class ModbusClient {
     /**
      * 心跳定时任务线程池
      */
-    private       ScheduledExecutorService heartbeatExecutor;
+    private       ScheduledExecutorService  heartbeatExecutor;
 
     /**
      * 开启心跳检测
