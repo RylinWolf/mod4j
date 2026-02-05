@@ -321,6 +321,16 @@ public class ModbusClient {
     }
 
     /**
+     * 检查设备是否已连接
+     *
+     * @param deviceId 设备 ID
+     * @return 如果设备已连接则返回 true，否则返回 false
+     */
+    public boolean isDeviceConnected(String deviceId) {
+        return connectedDevices.containsKey(deviceId);
+    }
+
+    /**
      * 发送原始字节请求到指定设备
      */
     public byte[] sendRawRequest(String deviceId, byte[] command) throws ModbusException {
