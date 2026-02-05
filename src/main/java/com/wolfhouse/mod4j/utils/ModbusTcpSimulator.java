@@ -29,6 +29,9 @@ public class ModbusTcpSimulator implements AutoCloseable {
     private final int                                  port;
     /** 是否为 TCP 通信方式（非 RTU） */
     private final boolean                              isTcpStrategy;
+    /** 模拟器启动器线程池 */
+    private final ExecutorService                      simulatorStarterService;
+    /** 模拟器请求处理器线程池 */
     private final ExecutorService                      executorService;
     private final AtomicBoolean                        running     = new AtomicBoolean(false);
     /** 虚拟响应结果封装, 主机号 - 响应结果封装 */
@@ -48,13 +51,20 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     public ModbusTcpSimulator(int port, boolean isTcpStrategy) {
-        this.isTcpStrategy   = isTcpStrategy;
-        this.port            = port;
-        this.executorService = new ThreadPoolExecutor(
+        this.isTcpStrategy           = isTcpStrategy;
+        this.port                    = port;
+        this.simulatorStarterService = new ThreadPoolExecutor(
+                1,
+                1,
+                0L, TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                Executors.defaultThreadFactory()
+        );
+        this.executorService         = new ThreadPoolExecutor(
                 // 核心线程数
-                1,
+                6,
                 // 最大线程数
-                1,
+                24,
                 60L, TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 Executors.defaultThreadFactory());
@@ -111,10 +121,10 @@ public class ModbusTcpSimulator implements AutoCloseable {
         }
 
         // 通过主机位(从机地址)确定要返回的虚拟数据列表
-        String                  hostKey = String.valueOf(slaveAddr & 0xFF);
+        String                  hostKey = String.format("%02x", slaveAddr & 0xFF);
         ArrayList<MockRespPair> pairs   = mockRespMap.get(hostKey);
         if (pairs == null || pairs.isEmpty()) {
-            return null;
+            return new byte[]{};
         }
 
         // 虚拟数据已经实现了 comparable，意味着列表是可以基于寄存器地址排序的
@@ -181,14 +191,20 @@ public class ModbusTcpSimulator implements AutoCloseable {
             serverSocket = new ServerSocket(port);
             log("[mod4j] Modbus TCP 模拟器已启动，监听端口: " + port);
 
-            executorService.execute(() -> {
+            simulatorStarterService.execute(() -> {
                 while (running.get()) {
                     try {
                         Socket clientSocket = serverSocket.accept();
-                        executorService.execute(() -> handleClient(clientSocket));
+                        CompletableFuture.runAsync(() -> handleClient(clientSocket), executorService)
+                                         .exceptionally(e -> {
+                                             if (running.get()) {
+                                                 logErr("[mod4j] 模拟器接受连接异常: " + e);
+                                             }
+                                             return null;
+                                         });
                     } catch (IOException e) {
                         if (running.get()) {
-                            logErr("[mod4j] 模拟器接受连接异常: " + e.getMessage());
+                            logErr("[mod4j] 模拟器接受连接异常: " + e);
                         }
                     }
                 }
@@ -310,6 +326,8 @@ public class ModbusTcpSimulator implements AutoCloseable {
      * @param pair 虚拟响应结果
      */
     public List<MockRespPair> addMockResp(String host, MockRespPair pair) {
+        // 限制主机位为一位（两个Hex）
+        host = "%02x".formatted(Integer.parseInt(host));
         ArrayList<MockRespPair> list = mockRespMap.computeIfAbsent(host, _ -> new ArrayList<>());
         list.add(pair);
         return list;

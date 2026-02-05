@@ -188,7 +188,7 @@ public interface ModbusDevice {
     default CompletableFuture<byte[]> doAsync(Supplier<byte[]> supplier, ModbusClient client) {
         Executor executor = (client != null) ? client.getOperationExecutor() : ForkJoinPool.commonPool();
         return CompletableFuture.supplyAsync(supplier, executor).exceptionally(e -> {
-            System.err.println("[mod4j] 线程池执行异步任务失败! " + e.getMessage());
+            System.err.printf("[mod4j] 线程池执行异步任务失败! - id: %s, error: %s%n", this.getDeviceId(), e);
             throw new ModbusException(e);
         });
     }
