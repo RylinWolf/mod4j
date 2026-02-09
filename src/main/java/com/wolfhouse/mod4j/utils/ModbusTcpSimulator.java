@@ -7,11 +7,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.BufferUnderflowException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -87,23 +83,9 @@ public class ModbusTcpSimulator implements AutoCloseable {
     private byte[] getBytes(byte[] pdu) {
         // 该方法接受的 pdu 是完整的 modbus 报文
         // 返回的报文从功能码开始，不包括主机位
-        byte   slaveAddr    = pdu[0];
-        byte   functionCode = pdu[1];
-        byte[] registerAddr = Arrays.copyOfRange(pdu, 2, 4);
-        int    registerAddrValue;
-        try {
-            registerAddrValue = ByteBuffer.wrap(registerAddr).order(ByteOrder.BIG_ENDIAN).getInt();
-        } catch (BufferUnderflowException e) {
-            if (registerAddr.length >= 4) {
-                throw e;
-            }
-            // 数组长度不足4字节
-            // 创建4字节数组并补0
-            byte[] padded = new byte[4];
-            // 大端序：补0在前面
-            System.arraycopy(registerAddr, 0, padded, 4 - registerAddr.length, registerAddr.length);
-            registerAddrValue = ByteBuffer.wrap(padded).order(ByteOrder.BIG_ENDIAN).getInt();
-        }
+        byte slaveAddr         = pdu[0];
+        byte functionCode      = pdu[1];
+        int  registerAddrValue = ((pdu[2] & 0xFF) << 8) | (pdu[3] & 0xFF);
 
         int quantity = 1;
         if (pdu.length >= 6) {
@@ -115,11 +97,6 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     private byte[] getMockResp(byte slaveAddr, int registerAddrValue, byte functionCode, int quantity) {
-        // 只考虑功能码是 03 (读保持寄存器) 的情况
-        if (functionCode != 0x03) {
-            return null;
-        }
-
         // 通过主机位(从机地址)确定要返回的虚拟数据列表
         String                  hostKey = String.format("%02x", slaveAddr & 0xFF);
         ArrayList<MockRespPair> pairs   = mockRespMap.get(hostKey);
@@ -127,12 +104,19 @@ public class ModbusTcpSimulator implements AutoCloseable {
             return new byte[]{};
         }
 
-        // 虚拟数据已经实现了 comparable，意味着列表是可以基于寄存器地址排序的
-        // 确保列表有序，以便按地址顺序提取数据
-        pairs.sort(null);
+        // 过滤出功能码匹配的响应
+        List<MockRespPair> matchedPairs = pairs.stream()
+                                               .filter(p -> p.functionCode() == (functionCode & 0xFF))
+                                               .sorted()
+                                               .toList();
+
+        if (matchedPairs.isEmpty()) {
+            return new byte[]{};
+        }
 
         // 构建数据并返回
-        // Modbus 03 功能码响应格式: [功能码(1B)] + [字节数(1B)] + [寄存器数据(N*2B)]
+        // Modbus 读响应格式: [功能码(1B)] + [字节数(1B)] + [数据(N*B)]
+        // 注意：01, 02 功能码返回的是位数据，此处通用逻辑暂按字节处理（主要是 03, 04）
         int    byteCount = quantity * 2;
         byte[] response  = new byte[2 + byteCount];
         response[0] = functionCode;
@@ -143,7 +127,7 @@ public class ModbusTcpSimulator implements AutoCloseable {
         int startAddr = registerAddrValue;
         int endAddr   = registerAddrValue + quantity;
 
-        for (MockRespPair pair : pairs) {
+        for (MockRespPair pair : matchedPairs) {
             // 检查该 MockRespPair 是否在请求范围内
             // 假设 MockRespPair 的 dataSize 是字节数，Modbus 寄存器是2字节
             int pairStart = pair.registerAddr();
@@ -162,7 +146,6 @@ public class ModbusTcpSimulator implements AutoCloseable {
 
                     if (pair.randData()) {
                         // 如果是随机数据，这里简单填充随机字节
-                        ThreadLocalRandom.current().nextBytes(new byte[2]); // 占位
                         response[2 + responseOffset]     = (byte) ThreadLocalRandom.current().nextInt(256);
                         response[2 + responseOffset + 1] = (byte) ThreadLocalRandom.current().nextInt(256);
                     } else if (pair.data() != null) {
@@ -352,11 +335,18 @@ public class ModbusTcpSimulator implements AutoCloseable {
      * @param dataSize     数据长度（字节数）
      * @param randData     是否随机数据
      * @param data         数据
+     * @param functionCode 功能码
      */
     public record MockRespPair(int registerAddr,
                                int dataSize,
                                boolean randData,
-                               byte[] data) implements Comparable<MockRespPair> {
+                               byte[] data,
+                               int functionCode) implements Comparable<MockRespPair> {
+
+        public MockRespPair(int registerAddr, int dataSize, boolean randData, byte[] data) {
+            this(registerAddr, dataSize, randData, data, 0x03);
+        }
+
         @Override
         public int compareTo(MockRespPair o) {
             return Integer.compare(registerAddr, o.registerAddr);
