@@ -71,11 +71,11 @@ public class TcpModbusDevice implements ModbusDevice {
     /**
      * 是否开启心跳检测
      */
-    private boolean           heartbeatEnabled  = true;
+    private boolean           heartbeatEnabled = true;
     /**
      * 心跳策略，默认为读取 0 号寄存器
      */
-    private HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
+    private HeartbeatStrategy heartbeatStrategy;
     private ModbusClient      client;
 
     /**
@@ -96,6 +96,8 @@ public class TcpModbusDevice implements ModbusDevice {
             TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
             this.ip                = tcpConfig.getIp();
             this.port              = tcpConfig.getPort();
+            this.heartbeatStrategy = tcpConfig.getHeartbeatStrategy();
+            this.heartbeatEnabled  = this.heartbeatStrategy != null && tcpConfig.isHeartbeatEnabled();
             this.timeout           = config.timeout();
             this.modDeviceType     = config.devType();
             this.communicationType = config.comType();
@@ -155,7 +157,7 @@ public class TcpModbusDevice implements ModbusDevice {
     @Override
     public synchronized void refresh() throws ModbusException {
         disconnect();
-        connect(new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port)));
+        connect(new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port, heartbeatStrategy, isHeartbeatEnabled())));
     }
 
     @Override
@@ -269,7 +271,7 @@ public class TcpModbusDevice implements ModbusDevice {
         // 阻塞读取第一个字节
         int firstByte = inputStream.read();
         if (firstByte == -1) {
-            throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败");
+            throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败: %s".formatted(port));
         }
         buffer[totalRead++] = (byte) firstByte;
 
@@ -291,7 +293,7 @@ public class TcpModbusDevice implements ModbusDevice {
         while (totalRead < n) {
             int read = inputStream.read(data, totalRead, n - totalRead);
             if (read == -1) {
-                throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败");
+                throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败: %s".formatted(port));
             }
             totalRead += read;
         }
@@ -379,7 +381,7 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     @Override
     public String getDeviceId() {
-        return new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port)).getDeviceId();
+        return new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port, heartbeatStrategy, isHeartbeatEnabled())).getDeviceId();
     }
 
     @Override
