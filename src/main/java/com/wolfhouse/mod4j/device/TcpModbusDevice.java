@@ -29,48 +29,42 @@ public class TcpModbusDevice implements ModbusDevice {
      * 默认超时时间 3000ms
      */
     private static final int DEFAULT_TIMEOUT = 3000;
-
+    private final    Object  connectionLock = new Object();
     /**
      * 设备 IP 地址
      */
     private String ip;
-
     /**
      * 设备端口号
      */
     private int port;
-
     /**
      * 设备类型 (TCP 或 SERIAL)
      */
     private ModDeviceType modDeviceType;
-
     /** 通信类型 (RTU 或 TCP) */
     private CommunicationType communicationType;
-
     /**
      * 超时时间
      */
     private volatile int timeout = DEFAULT_TIMEOUT;
-
     /**
      * TCP Socket
      */
-    private volatile Socket socket;
-    private final Object connectionLock = new Object();
-    // 与收发锁独立。显式断开可以关闭阻塞中的 Socket，并作废旧请求的重连资格。
-    private long connectionGeneration;
-    private boolean reconnectOnRequest;
+    private volatile Socket  socket;
+    /** 与收发锁独立。显式断开可以关闭阻塞中的 Socket，并作废旧请求的重连资格。 */
+    private          long    connectionGeneration;
+    private          boolean reconnectOnRequest;
 
     /**
      * 是否开启心跳检测
      */
-    private volatile boolean heartbeatEnabled;
+    private volatile boolean           heartbeatEnabled;
     /**
      * 心跳策略，默认为读取 0 号寄存器
      */
     private volatile HeartbeatStrategy heartbeatStrategy;
-    private ModbusClient      client;
+    private          ModbusClient      client;
 
     /**
      * 默认构造函数（建议通过 ModbusClient 连接）
@@ -92,12 +86,12 @@ public class TcpModbusDevice implements ModbusDevice {
         if (config.comType() == null || config.timeout() < 0) {
             throw new ModbusException("[mod4j] TCP 报文格式或超时配置无效");
         }
-        this.ip = tcpConfig.getIp();
-        this.port = tcpConfig.getPort();
+        this.ip                = tcpConfig.getIp();
+        this.port              = tcpConfig.getPort();
         this.heartbeatStrategy = tcpConfig.getHeartbeatStrategy();
-        this.heartbeatEnabled = tcpConfig.isHeartbeatEnabled();
-        this.timeout = config.timeout();
-        this.modDeviceType = config.devType();
+        this.heartbeatEnabled  = tcpConfig.isHeartbeatEnabled();
+        this.timeout           = config.timeout();
+        this.modDeviceType     = config.devType();
         this.communicationType = config.comType();
 
         openConnection(generation);
@@ -140,8 +134,8 @@ public class TcpModbusDevice implements ModbusDevice {
         synchronized (connectionLock) {
             connectionGeneration++;
             reconnectOnRequest = false;
-            previous = socket;
-            socket = null;
+            previous           = socket;
+            socket             = null;
         }
         closeConnection(previous);
     }
@@ -158,13 +152,13 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public void refresh() throws ModbusException {
-        long generation;
+        long   generation;
         Socket previous;
         synchronized (connectionLock) {
-            generation = ++connectionGeneration;
+            generation         = ++connectionGeneration;
             reconnectOnRequest = false;
-            previous = socket;
-            socket = null;
+            previous           = socket;
+            socket             = null;
         }
         closeConnection(previous);
         synchronized (this) {
@@ -212,15 +206,15 @@ public class TcpModbusDevice implements ModbusDevice {
             throw new ModbusException("[mod4j] TCP 设备尚未配置");
         }
         int functionOffset = communicationType == CommunicationType.TCP ? 7 : 1;
-        int minLength = communicationType == CommunicationType.TCP ? 8 : 4;
+        int minLength      = communicationType == CommunicationType.TCP ? 8 : 4;
         if (command == null || command.length < minLength) {
             throw new ModbusException("[mod4j] 请求报文过短");
         }
 
-        byte[] request = command.clone();
+        byte[]  request   = command.clone();
         boolean retryRead = isStandardRead(request, functionOffset);
-        long generation;
-        Socket connection;
+        long    generation;
+        Socket  connection;
         synchronized (connectionLock) {
             generation = connectionGeneration;
             connection = socket;
@@ -310,7 +304,7 @@ public class TcpModbusDevice implements ModbusDevice {
 
         byte[] response = Arrays.copyOf(header, 6 + length);
         input.readFully(response, header.length, length - 1);
-        int function = response[7] & 0xFF;
+        int function          = response[7] & 0xFF;
         int requestedFunction = command[7] & 0xFF;
         if (function == (requestedFunction | 0x80) && length == 3) {
             return response;

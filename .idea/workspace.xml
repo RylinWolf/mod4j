@@ -1,0 +1,645 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AIAssistantCustomInstructionsStorage">
+    <option name="instructions">
+      <map>
+        <entry key="AIAssistant.General.ProjectPrompt">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="AIAssistant.General.ProjectPrompt" />
+              <option name="content" value="用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="AIAssistant.VCS.GenerateCommitMessage">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="AIAssistant.VCS.GenerateCommitMessage" />
+              <option name="content" value="Avoid overly verbose descriptions or unnecessary details.用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="AIAssistant.WriteDocumentation.Java">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="AIAssistant.WriteDocumentation.Java" />
+              <option name="content" value="Do not return example code, do not use @author or @version or @since tags.&#10;DO NOT generate example usage.&#10;DO NOT generate usage example.&#10;DO NOT use html tags such as &lt;p&gt;, &lt;lu&gt;, &lt;li&gt;.&#10;DO NOT generate documentation for type member properties.&#10;Write javadoc.用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="AIAssistant.WriteDocumentation.JavaScript">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="AIAssistant.WriteDocumentation.JavaScript" />
+              <option name="content" value="Do not return example code, do not use @author or @version or @since tags.&#10;DO NOT generate example usage.&#10;DO NOT generate usage example.&#10;DO NOT use html tags such as &lt;p&gt;, &lt;lu&gt;, &lt;li&gt;.&#10;DO NOT generate documentation for type member properties.&#10;Write JSDoc.用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="AIAssistant.WriteDocumentation.Kotlin">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="AIAssistant.WriteDocumentation.Kotlin" />
+              <option name="content" value="Do not return example code, do not use @author or @version or @since tags.&#10;DO NOT generate example usage.&#10;DO NOT generate usage example.&#10;DO NOT use html tags such as &lt;p&gt;, &lt;lu&gt;, &lt;li&gt;.&#10;DO NOT generate documentation for type member properties.&#10;Write KDoc.用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="ij.vcs.review-buddy.summarize.short.github">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="ij.vcs.review-buddy.summarize.short.github" />
+              <option name="content" value="Write the summary in the following format:&#10;&#10;## Summary&#10;... a short summary of the PR ...&#10;&#10;... a few bullet points explaining the main changes ...用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="llm.testGeneration.java">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="llm.testGeneration.java" />
+              <option name="content" value="用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="llm.testGeneration.js">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="llm.testGeneration.js" />
+              <option name="content" value="用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="llm.testGeneration.kotlin">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="llm.testGeneration.kotlin" />
+              <option name="content" value="用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+        <entry key="llm.testGeneration.vue">
+          <value>
+            <AIAssistantStoredInstruction>
+              <option name="actionId" value="llm.testGeneration.vue" />
+              <option name="content" value="用中文" />
+            </AIAssistantStoredInstruction>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3a431e9b-0e44-4988-b3be-a863ed737fbd" name="更改" comment="feat: 增加心跳检测异常类">
+      <change afterPath="$PROJECT_DIR$/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/wolfhouse/mod4j/device/TcpModbusDevice.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/wolfhouse/mod4j/device/TcpModbusDevice.java" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="46" />
+    <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Exception" />
+        <option value="Class" />
+      </list>
+    </option>
+  </component>
+  <component name="FormatOnSaveOptions">
+    <option name="myRunOnSave" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;RylinWolf&quot;
+  }
+}</component>
+  <component name="GitLabMergeRequestFiltersHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPENED&quot;,
+    &quot;assignee&quot;: {
+      &quot;type&quot;: &quot;org.jetbrains.plugins.gitlab.mergerequest.ui.filters.GitLabMergeRequestsFiltersValue.MergeRequestsMemberFilterValue.MergeRequestsAssigneeFilterValue&quot;,
+      &quot;username&quot;: &quot;songjinyan&quot;,
+      &quot;fullname&quot;: &quot;宋锦延&quot;
+    }
+  }
+}</component>
+  <component name="GitLabMergeRequestsSettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;first&quot;: &quot;http://gitlab.zjckzn.com/ckzn/mod4j.git&quot;,
+    &quot;second&quot;: &quot;0b86d82e-e64e-43ab-91e1-6b079f54755f&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/RylinWolf/mod4j.git&quot;,
+    &quot;accountId&quot;: &quot;8b88fd6a-7775-444b-898e-1386f4665b0e&quot;
+  }
+}</component>
+  <component name="MavenImportPreferences">
+    <option name="generalSettings">
+      <MavenGeneralSettings>
+        <option name="customMavenHome" value="$PROJECT_DIR$/../../../Enviroment/maven/apache-maven-3.8.9/bin" />
+        <option name="mavenHomeTypeForPersistence" value="CUSTOM" />
+        <option name="userSettingsFile" value="$PROJECT_DIR$/../../../Enviroment/maven/apache-maven-3.8.9/conf/settings.xml" />
+      </MavenGeneralSettings>
+    </option>
+  </component>
+  <component name="MavenRunner">
+    <option name="skipTests" value="true" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="OptimizeOnSaveOptions">
+    <option name="myRunOnSave" value="true" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
+  <component name="ProjectId" id="38Vzs0b1TVSrauWB1wIvqNINl1P" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "CidrDebugProfileConversion": "true",
+    "JUnit.CrcUtilTest.crcTest.executor": "Run",
+    "JUnit.ModClientTest.testBatchConnect.executor": "Run",
+    "JUnit.ModClientTest.testConnection.executor": "Run",
+    "JUnit.ModbusClientTest.startTcpSimulator.executor": "Debug",
+    "JUnit.ModbusClientTest.startTcpSimulator02.executor": "Debug",
+    "JUnit.ModbusClientTest.testConnectAndRequest.executor": "Run",
+    "JUnit.ModbusClientTest.testHeartbeat.executor": "Run",
+    "JUnit.TcpSimulatorTest.start.executor": "Run",
+    "Maven.mod4j [clean].executor": "Run",
+    "Maven.mod4j [compile].executor": "Run",
+    "Maven.mod4j [deploy].executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SONARLINT_PRECOMMIT_ANALYSIS": "true",
+    "cidr.known.project.marker": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "labMain",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "project.structure.last.edited": "模块",
+    "project.structure.proportion": "0.0",
+    "project.structure.side.proportion": "0.0",
+    "rearrange.code.on.save": "true",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecapSpentCounter">
+    <option name="endsOfQuotaMs" value="1769828406321" />
+    <option name="spentUsd" value="0.09912246" />
+  </component>
+  <component name="RecapUselessUpdatesCounter">
+    <option name="suspendCountdown" value="0" />
+  </component>
+  <component name="RecentsManager">
+    <key name="CopyClassDialog.RECENTS_KEY">
+      <recent name="com.wolfhouse.mod4j.utils" />
+      <recent name="com.wolfhouse.mod4j.enums" />
+    </key>
+  </component>
+  <component name="RunManager" selected="JUnit.CrcUtilTest.crcTest">
+    <configuration default="true" type="AppleRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" IS_LOCATION_SIMULATION_SUPPORTED="false" IS_LOCATION_SIMULATION_ALLOWED="true" APPLICATION_LANGUAGE="IDELaunchSchemeLanguageUseSystemLanguage" APPLICATION_REGION="" DEVELOPMENT_TEAM="" MAKE_ACTIVE="TRUE" SHOULD_DEBUG_EXTENSIONS="false">
+      <embedded_app_extension_list />
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="CrcUtilTest.crcTest" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="mod4j" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.wolfhouse.mod4j.utils.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="com.wolfhouse.mod4j.utils" />
+      <option name="MAIN_CLASS_NAME" value="com.wolfhouse.mod4j.utils.CrcUtilTest" />
+      <option name="METHOD_NAME" value="crcTest" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="ModClientTest.testConnection" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="mod4j" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.wolfhouse.mod4j.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="com.wolfhouse.mod4j" />
+      <option name="MAIN_CLASS_NAME" value="com.wolfhouse.mod4j.ModClientTest" />
+      <option name="METHOD_NAME" value="testConnection" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="ModbusClientTest.testConnectAndRequest" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="mod4j" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.wolfhouse.mod4j.facade.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="com.wolfhouse.mod4j.facade" />
+      <option name="MAIN_CLASS_NAME" value="com.wolfhouse.mod4j.facade.ModbusClientTest" />
+      <option name="METHOD_NAME" value="testConnectAndRequest" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="ModbusClientTest.testHeartbeat" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="mod4j" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.wolfhouse.mod4j.facade.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="com.wolfhouse.mod4j.facade" />
+      <option name="MAIN_CLASS_NAME" value="com.wolfhouse.mod4j.facade.ModbusClientTest" />
+      <option name="METHOD_NAME" value="testHeartbeat" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="TcpSimulatorTest.start" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="mod4j" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.wolfhouse.mod4j.facade.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="com.wolfhouse.mod4j.facade" />
+      <option name="MAIN_CLASS_NAME" value="com.wolfhouse.mod4j.facade.TcpSimulatorTest" />
+      <option name="METHOD_NAME" value="start" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="JUnit.CrcUtilTest.crcTest" />
+        <item itemvalue="JUnit.TcpSimulatorTest.start" />
+        <item itemvalue="JUnit.ModbusClientTest.testHeartbeat" />
+        <item itemvalue="JUnit.ModbusClientTest.testConnectAndRequest" />
+        <item itemvalue="JUnit.ModClientTest.testConnection" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-30f59d01ecdd-a203e0a19954-intellij.indexing.shared.core-IU-262.10315.125" />
+        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-IU-262.10315.125" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="StructureViewState">
+    <option name="selectedTab" value="实体" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="默认任务">
+      <changelist id="3a431e9b-0e44-4988-b3be-a863ed737fbd" name="更改" comment="" />
+      <created>1768899730635</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1768899730635</updated>
+      <workItem from="1768899731827" duration="13361000" />
+      <workItem from="1768961514613" duration="31018000" />
+      <workItem from="1769060878417" duration="15408000" />
+      <workItem from="1769157055395" duration="579000" />
+      <workItem from="1769157656314" duration="1998000" />
+      <workItem from="1769388313495" duration="1434000" />
+      <workItem from="1769408266902" duration="25979000" />
+      <workItem from="1769560831273" duration="598000" />
+      <workItem from="1769564067446" duration="10702000" />
+      <workItem from="1769742630486" duration="3899000" />
+      <workItem from="1769785405600" duration="5000" />
+      <workItem from="1769785430168" duration="3397000" />
+      <workItem from="1769788972404" duration="1222000" />
+      <workItem from="1769993090190" duration="598000" />
+      <workItem from="1769998042251" duration="4441000" />
+      <workItem from="1770023413697" duration="438000" />
+      <workItem from="1770023867022" duration="123000" />
+      <workItem from="1770024012624" duration="2559000" />
+      <workItem from="1770080998878" duration="598000" />
+      <workItem from="1770081917503" duration="1318000" />
+      <workItem from="1770089267238" duration="2144000" />
+      <workItem from="1770192624214" duration="598000" />
+      <workItem from="1770193742176" duration="12427000" />
+      <workItem from="1770506900285" duration="598000" />
+      <workItem from="1770508559596" duration="598000" />
+      <workItem from="1770509563198" duration="3245000" />
+      <workItem from="1770622229345" duration="1875000" />
+      <workItem from="1770692218895" duration="165000" />
+      <workItem from="1770693534633" duration="214000" />
+      <workItem from="1770908494726" duration="1122000" />
+      <workItem from="1771129773006" duration="679000" />
+      <workItem from="1771899532279" duration="1264000" />
+      <workItem from="1771900835809" duration="597000" />
+      <workItem from="1771905058862" duration="598000" />
+      <workItem from="1771921403535" duration="2843000" />
+      <workItem from="1772173199088" duration="598000" />
+      <workItem from="1772177490444" duration="339000" />
+      <workItem from="1772177856230" duration="598000" />
+      <workItem from="1772414633671" duration="599000" />
+      <workItem from="1772529657885" duration="440000" />
+      <workItem from="1772530915175" duration="937000" />
+      <workItem from="1772532779438" duration="742000" />
+      <workItem from="1772677856531" duration="2881000" />
+      <workItem from="1772766051679" duration="598000" />
+      <workItem from="1773048047858" duration="1442000" />
+      <workItem from="1773126971011" duration="597000" />
+      <workItem from="1773197797203" duration="598000" />
+      <workItem from="1773296919812" duration="1006000" />
+      <workItem from="1773309759279" duration="1194000" />
+      <workItem from="1773538846162" duration="597000" />
+      <workItem from="1773796591002" duration="224000" />
+      <workItem from="1774834344185" duration="17110000" />
+      <workItem from="1775522765290" duration="599000" />
+      <workItem from="1778295145239" duration="115000" />
+      <workItem from="1778749285966" duration="1994000" />
+    </task>
+    <task id="LOCAL-00001" summary="init: 项目初始提交，创建 modbus 设备接口及TCP/RTU 实现，创建报文构造工具，创建 modbus 客户端（门面）">
+      <option name="closed" value="true" />
+      <created>1768903547918</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1768903547918</updated>
+    </task>
+    <task id="LOCAL-00002" summary="feat: 新增 TCP 模拟器工具，用于创建 tcp 客户端">
+      <option name="closed" value="true" />
+      <created>1768904010359</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1768904010359</updated>
+    </task>
+    <task id="LOCAL-00003" summary="feat: 增加设备配置封装和心跳机制，优化资源管理与批量操作">
+      <option name="closed" value="true" />
+      <created>1768906805968</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1768906805968</updated>
+    </task>
+    <task id="LOCAL-00004" summary="docs: 更新 `readme.md`ˆ">
+      <option name="closed" value="true" />
+      <created>1768907029453</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1768907029453</updated>
+    </task>
+    <task id="LOCAL-00005" summary="feat: 支持自定义心跳策略和异步请求，增加线程池配置，优化异常处理">
+      <option name="closed" value="true" />
+      <created>1768959076394</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1768959076394</updated>
+    </task>
+    <task id="LOCAL-00006" summary="feat: 新增 RTU 模拟工具">
+      <option name="closed" value="true" />
+      <created>1768959094352</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1768959094352</updated>
+    </task>
+    <task id="LOCAL-00007" summary="feat: 防止重复设备连接，优化设备配置和方法签名，提升连接安全性">
+      <option name="closed" value="true" />
+      <created>1768963740469</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1768963740469</updated>
+    </task>
+    <task id="LOCAL-00008" summary="feat: 引入设备配置抽象类，新增串口和 TCP 设备配置支持，优化配置逻辑">
+      <option name="closed" value="true" />
+      <created>1768965749026</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1768965749026</updated>
+    </task>
+    <task id="LOCAL-00009" summary="feat: 使用 lombok 优化设备配置类">
+      <option name="closed" value="true" />
+      <created>1768966131881</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1768966131881</updated>
+    </task>
+    <task id="LOCAL-00010" summary="fix: 为 AbstractDeviceConfig 添加 lombok 配置">
+      <option name="closed" value="true" />
+      <created>1768966548164</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1768966548164</updated>
+    </task>
+    <task id="LOCAL-00011" summary="feat: 增加串口默认配置方法，优化异常处理和资源清理逻辑">
+      <option name="closed" value="true" />
+      <created>1768974634542</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1768974634542</updated>
+    </task>
+    <task id="LOCAL-00012" summary="feat: 添加事件驱动机制，支持设备连接和断开事件监听">
+      <option name="closed" value="true" />
+      <created>1768976079049</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1768976079049</updated>
+    </task>
+    <task id="LOCAL-00013" summary="docs: 更新 `readme.md`ˆ">
+      <option name="closed" value="true" />
+      <created>1768976999130</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1768976999130</updated>
+    </task>
+    <task id="LOCAL-00014" summary="feat: 为 modbus 门面类（客户端）添加异步请求支持，重构设备获取逻辑">
+      <option name="closed" value="true" />
+      <created>1768977446296</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1768977446296</updated>
+    </task>
+    <task id="LOCAL-00015" summary="fix: 串口不可用时，现在会正常抛出异常；优化了事件执行失败时的提示信息">
+      <option name="closed" value="true" />
+      <created>1768979400558</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1768979400558</updated>
+    </task>
+    <task id="LOCAL-00016" summary="feat: 支持 Modbus TCP_RTU 模式，新增相关设备配置、连接逻辑和请求处理；更新模拟器响应逻辑，优化批量连接方法">
+      <option name="closed" value="true" />
+      <created>1769046755388</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1769046755388</updated>
+    </task>
+    <task id="LOCAL-00017" summary="feat: 新增指令发送重试机制&#10; &#10;- 新增发送指令重试机制，防止因设备离线而导致重连后的发送指令失败&#10;- 重构设备类型枚举，完善设备配置逻辑&#10;- 新增通信模式枚举，与设备类型解耦">
+      <option name="closed" value="true" />
+      <created>1769149580886</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1769149580886</updated>
+    </task>
+    <task id="LOCAL-00018" summary="feat: 配置 ModbusTcpSimulator 虚拟响应支持，调整模拟器和客户端代码格式&#10;&#10;- 为 `ModbusTcpSimulator` 添加虚拟响应结果支持，包括响应逻辑与配置方法&#10;- 优化 Modbus 模拟器请求处理，添加 TCP 和 RTU 模式的逻辑区分&#10;- 重构客户端代码，提高代码可读性，调整格式和注释&#10;- 为 `ModbusProtocolUtils` 添加私有构造函数，防止无法使用的实例化">
+      <option name="closed" value="true" />
+      <created>1769421675260</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1769421675260</updated>
+    </task>
+    <task id="LOCAL-00019" summary="test: 为 ModbusTcpSimulator 添加 TcpSimulatorTest 测试类&#10;&#10;- 编写 TcpSimulatorTest，用于验证 ModbusTcpSimulator 启动和虚拟响应逻辑&#10;- 覆盖多端口模拟器的初始化和停止流程">
+      <option name="closed" value="true" />
+      <created>1769786884760</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1769786884760</updated>
+    </task>
+    <task id="LOCAL-00020" summary="feat: 增加设备连接检查方法与十六进制工具类，优化模拟器日志与响应控制&#10;&#10;- 为 ModbusClient 增加 `isDeviceConnected` 方法，简化连接状态判断&#10;- 新增 `HexUtils` 工具类，提供十六进制数据解析与转换功能&#10;- 优化 ModbusTcpSimulator 日志输出与响应处理，增强调试与扩展性&#10;- 更新 Maven 配置，支持源码打包">
+      <option name="closed" value="true" />
+      <created>1770261707945</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1770261707945</updated>
+    </task>
+    <task id="LOCAL-00021" summary="fix: 修复 TCP 模拟器执行任务时，共用线程池导致的问题；优化模拟器多线程处理与日志输出&#10;&#10;- 引入独立线程池 `simulatorStarterService`，优化启动与请求处理分离逻辑&#10;- 增加异常日志信息，提升调试能力&#10;- 修复虚拟响应返回空数组的问题，调整主机位格式化逻辑">
+      <option name="closed" value="true" />
+      <created>1770285592180</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1770285592180</updated>
+    </task>
+    <task id="LOCAL-00022" summary="feat: 增强 HexUtils 功能；为 TCP 设备模拟器新增功能码配置功能">
+      <option name="closed" value="true" />
+      <created>1770624662112</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1770624662112</updated>
+    </task>
+    <task id="LOCAL-00023" summary="feat: 增加心跳检测支持，优化 TCP 设备初始化与异常处理&#10;&#10;- 为 `TcpModbusDevice` 添加心跳检测策略与开关配置，提升设备连接管理灵活性&#10;- 改进异常信息输出，增加端口细节，优化调试能力&#10;- 更新 `HeartbeatStrategy` 接口，细化异常类型定义&#10;- 升级版本至 `1.0.7`">
+      <option name="closed" value="true" />
+      <created>1773112243993</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1773112243993</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="init: 项目初始提交，创建 modbus 设备接口及TCP/RTU 实现，创建报文构造工具，创建 modbus 客户端（门面）" />
+    <MESSAGE value="feat: 新增 TCP 模拟器工具，用于创建 tcp 客户端" />
+    <MESSAGE value="feat: 增加设备配置封装和心跳机制，优化资源管理与批量操作" />
+    <MESSAGE value="feat: 支持自定义心跳策略和异步请求，增加线程池配置，优化异常处理" />
+    <MESSAGE value="feat: 新增 RTU 模拟工具" />
+    <MESSAGE value="feat: 防止重复设备连接，优化设备配置和方法签名，提升连接安全性" />
+    <MESSAGE value="feat: 引入设备配置抽象类，新增串口和 TCP 设备配置支持，优化配置逻辑" />
+    <MESSAGE value="perf: 使用 lombok 优化设备配置类" />
+    <MESSAGE value="perf: 使用 lombok 优化设备配置类" />
+    <MESSAGE value="fix: 为 AbstractDeviceConfig 添加 lombok 配置" />
+    <MESSAGE value="feat: 增加串口默认配置方法，优化异常处理和资源清理逻辑" />
+    <MESSAGE value="feat: 添加事件驱动机制，支持设备连接和断开事件监听" />
+    <MESSAGE value="docs: 更新 `readme.md`" />
+    <MESSAGE value="docs: 更新 `readme.md`" />
+    <MESSAGE value="feat: 为 modbus 门面类（客户端）添加异步请求支持，重构设备获取逻辑" />
+    <MESSAGE value="fix: 串口不可用时，现在会正常抛出异常；优化了事件执行失败时的提示信息" />
+    <MESSAGE value="feat: 支持 Modbus TCP_RTU 模式，新增相关设备配置、连接逻辑和请求处理；更新模拟器响应逻辑，优化批量连接方法" />
+    <MESSAGE value="feat: 新增指令发送重试机制&#10; &#10;- 新增发送指令重试机制，防止因设备离线而导致重连后的发送指令失败&#10;- 重构设备类型枚举，完善设备配置逻辑&#10;- 新增通信模式枚举，与设备类型解耦" />
+    <MESSAGE value="feat: 配置 ModbusTcpSimulator 虚拟响应支持，调整模拟器和客户端代码格式&#10;&#10;- 为 `ModbusTcpSimulator` 添加虚拟响应结果支持，包括响应逻辑与配置方法&#10;- 优化 Modbus 模拟器请求处理，添加 TCP 和 RTU 模式的逻辑区分&#10;- 重构客户端代码，提高代码可读性，调整格式和注释&#10;- 为 `ModbusProtocolUtils` 添加私有构造函数，防止无法使用的实例化" />
+    <MESSAGE value="test: 为 ModbusTcpSimulator 添加 TcpSimulatorTest 测试类&#10;&#10;- 编写 TcpSimulatorTest，用于验证 ModbusTcpSimulator 启动和虚拟响应逻辑&#10;- 覆盖多端口模拟器的初始化和停止流程" />
+    <MESSAGE value="feat: 增加设备连接检查方法与十六进制工具类，优化模拟器日志与响应控制&#10;&#10;- 为 ModbusClient 增加 `isDeviceConnected` 方法，简化连接状态判断&#10;- 新增 `HexUtils` 工具类，提供十六进制数据解析与转换功能&#10;- 优化 ModbusTcpSimulator 日志输出与响应处理，增强调试与扩展性&#10;- 更新 Maven 配置，支持源码打包" />
+    <MESSAGE value="fix: " />
+    <MESSAGE value="fix: 修复 TCP 模拟器执行任务时，共用线程池导致的问题；优化模拟器多线程处理与日志输出&#10;&#10;- 引入独立线程池 `simulatorStarterService`，优化启动与请求处理分离逻辑&#10;- 增加异常日志信息，提升调试能力&#10;- 修复虚拟响应返回空数组的问题，调整主机位格式化逻辑" />
+    <MESSAGE value="feat: 增强 HexUtils 功能；为 TCP 设备模拟器新增功能码配置功能" />
+    <MESSAGE value="feat: 增加心跳检测支持，优化 TCP 设备初始化与异常处理&#10;&#10;- 为 `TcpModbusDevice` 添加心跳检测策略与开关配置，提升设备连接管理灵活性&#10;- 改进异常信息输出，增加端口细节，优化调试能力&#10;- 更新 `HeartbeatStrategy` 接口，细化异常类型定义&#10;- 升级版本至 `1.0.7`" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: 增加心跳检测支持，优化 TCP 设备初始化与异常处理&#10;&#10;- 为 `TcpModbusDevice` 添加心跳检测策略与开关配置，提升设备连接管理灵活性&#10;- 改进异常信息输出，增加端口细节，优化调试能力&#10;- 更新 `HeartbeatStrategy` 接口，细化异常类型定义&#10;- 升级版本至 `1.0.7`" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>
