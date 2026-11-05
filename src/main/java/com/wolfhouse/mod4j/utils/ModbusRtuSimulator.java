@@ -3,6 +3,7 @@ package com.wolfhouse.mod4j.utils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -54,56 +55,19 @@ public class ModbusRtuSimulator {
     }
 
     private void process() {
-        byte[] buffer = new byte[256];
         while (running.get() && !Thread.currentThread().isInterrupted()) {
             try {
-                int read = inputStream.read(buffer);
-                if (read == -1) {
+                byte[] request = RtuSimulatorFrames.readRequest(inputStream);
+                if (request == null) {
                     break;
                 }
-
-                if (read < 4) {
-                    // 至少需要 SlaveID(1) + Func(1) + CRC(2)
-                    continue;
-                }
-
-                // 简单的 CRC 校验验证（可选，为了模拟真实性）
-                int receivedCrc   = ((buffer[read - 1] & 0xFF) << 8) | (buffer[read - 2] & 0xFF);
-                int calculatedCrc = ModbusProtocolUtils.calculateCrc(buffer, 0, read - 2);
-
-                if (receivedCrc != calculatedCrc) {
+                if (!RtuSimulatorFrames.hasValidCrc(request)) {
                     System.err.println("[mod4j] 模拟器收到 CRC 校验错误的报文");
                     continue;
                 }
 
-                byte slaveId      = buffer[0];
-                byte functionCode = buffer[1];
-
-                byte[] responsePdu;
-                if (functionCode == 0x03) {
-                    // 模拟返回：字节数(2), 数据(00 01)
-                    responsePdu = new byte[]{0x03, 0x02, 0x00, 0x01};
-                } else if (functionCode == 0x01) {
-                    // 模拟返回：字节数(1), 数据(01)
-                    responsePdu = new byte[]{0x01, 0x01, 0x01};
-                } else {
-                    // 其他回环
-                    responsePdu = new byte[read - 3];
-                    System.arraycopy(buffer, 1, responsePdu, 0, responsePdu.length);
-                }
-
-                // 构建带 SlaveID 和 CRC 的响应
-                byte[] responseFrame = new byte[responsePdu.length + 3];
-                responseFrame[0] = slaveId;
-                System.arraycopy(responsePdu, 0, responseFrame, 1, responsePdu.length);
-
-                int crc = ModbusProtocolUtils.calculateCrc(responseFrame, 0, responseFrame.length - 2);
-                responseFrame[responseFrame.length - 2] = (byte) (crc & 0xFF);
-                responseFrame[responseFrame.length - 1] = (byte) ((crc >> 8) & 0xFF);
-
-                outputStream.write(responseFrame);
+                outputStream.write(RtuSimulatorFrames.response(request[0], responsePdu(request)));
                 outputStream.flush();
-
             } catch (IOException e) {
                 if (running.get()) {
                     System.err.println("[mod4j] RTU 模拟器处理异常: " + e.getMessage());
@@ -111,5 +75,40 @@ public class ModbusRtuSimulator {
                 break;
             }
         }
+    }
+
+    private byte[] responsePdu(byte[] request) {
+        byte function = request[1];
+        if (function != 0x01 && function != 0x03) {
+            // 单写请求及其他既有回环请求保留原 PDU。
+            return Arrays.copyOfRange(request, 1, request.length - 2);
+        }
+
+        int address = ((request[2] & 0xFF) << 8) | (request[3] & 0xFF);
+        int quantity = ((request[4] & 0xFF) << 8) | (request[5] & 0xFF);
+        if (quantity < 1 || quantity > ModbusProtocolUtils.maxReadQuantity(function)) {
+            return new byte[]{(byte) (function | 0x80), 0x03};
+        }
+        if (address + quantity > 0x10000) {
+            return new byte[]{(byte) (function | 0x80), 0x02};
+        }
+
+        boolean coils = function == 0x01;
+        int byteCount = coils ? (quantity + 7) / 8 : quantity * 2;
+        byte[] pdu = new byte[2 + byteCount];
+        pdu[0] = function;
+        pdu[1] = (byte) byteCount;
+        if (coils) {
+            Arrays.fill(pdu, 2, pdu.length, (byte) 0xFF);
+            int remainder = quantity % 8;
+            if (remainder != 0) {
+                pdu[pdu.length - 1] = (byte) ((1 << remainder) - 1);
+            }
+        } else {
+            for (int i = 3; i < pdu.length; i += 2) {
+                pdu[i] = 1;
+            }
+        }
+        return pdu;
     }
 }

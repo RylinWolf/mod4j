@@ -70,6 +70,22 @@ public class TcpModbusDeviceTest {
         assertInvalidResponse(response -> response[7] = 4, 11);
     }
 
+    @Test(timeout = 5000)
+    public void outOfRangeAddressNeverReachesTheNetwork() throws Exception {
+        try (var listener = newListener()) {
+            var device = connect(listener, CommunicationType.TCP, 1000);
+            try (var peer = accept(listener)) {
+                var failure = assertThrows(ModbusException.class, () -> device.sendRequest(1, 3, 65536, 1));
+                assertTrue(failure.getMessage().contains("地址"));
+                peer.setSoTimeout(250);
+                assertThrows(SocketTimeoutException.class, () -> peer.getInputStream().read());
+                assertTrue(device.isConnected());
+            } finally {
+                device.disconnect();
+            }
+        }
+    }
+
     @Test(timeout = 6000)
     public void parameterizedTcpReadRejectsMalformedData() throws Exception {
         assertInvalidResponse(response -> response[5] = 2, 8);

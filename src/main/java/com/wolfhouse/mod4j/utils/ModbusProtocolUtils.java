@@ -1,5 +1,7 @@
 package com.wolfhouse.mod4j.utils;
 
+import com.wolfhouse.mod4j.exception.ModbusException;
+
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -27,10 +29,12 @@ public class ModbusProtocolUtils {
      * @param slaveId      从站 ID
      * @param functionCode 功能码
      * @param address      起始地址
-     * @param quantity     寄存器数量
+     * @param quantity     读取数量或固定格式写请求的写入值
      * @return 构建好的完整 RTU 报文
+     * @throws ModbusException 请求字段超出允许范围
      */
     public static byte[] buildRtuPdu(int slaveId, int functionCode, int address, int quantity) {
+        validateRequestFields(slaveId, functionCode, address, quantity);
         byte[] pdu = new byte[6];
         pdu[0] = (byte) slaveId;
         pdu[1] = (byte) functionCode;
@@ -54,10 +58,12 @@ public class ModbusProtocolUtils {
      * @param slaveId      从站 ID
      * @param functionCode 功能码
      * @param address      起始地址
-     * @param quantity     寄存器数量
+     * @param quantity     读取数量或固定格式写请求的写入值
      * @return 构建好的完整 TCP 报文
+     * @throws ModbusException 请求字段超出允许范围
      */
     public static byte[] buildTcpPdu(int slaveId, int functionCode, int address, int quantity) {
+        validateRequestFields(slaveId, functionCode, address, quantity);
         byte[] frame = new byte[12];
         int    tid   = nextTransactionId();
         // Transaction ID
@@ -78,6 +84,35 @@ public class ModbusProtocolUtils {
         frame[10] = (byte) ((quantity >> 8) & 0xFF);
         frame[11] = (byte) (quantity & 0xFF);
         return frame;
+    }
+
+    private static void validateRequestFields(int slaveId, int functionCode, int address, int quantity) {
+        checkFieldRange("从站 ID", slaveId, 0xFF);
+        checkFieldRange("功能码", functionCode, 0xFF);
+        checkFieldRange("起始地址", address, 0xFFFF);
+        checkFieldRange("数量或写入值", quantity, 0xFFFF);
+
+        int maxQuantity = maxReadQuantity(functionCode);
+        if (maxQuantity > 0 && (quantity < 1 || quantity > maxQuantity)) {
+            throw new ModbusException("[mod4j] 读取数量必须在 1 至 " + maxQuantity + " 之间");
+        }
+        if (maxQuantity > 0 && address + quantity > 0x10000) {
+            throw new ModbusException("[mod4j] 读取范围超出 Modbus 地址空间");
+        }
+    }
+
+    static int maxReadQuantity(int functionCode) {
+        return switch (functionCode) {
+            case 1, 2 -> 2000;
+            case 3, 4 -> 125;
+            default -> 0;
+        };
+    }
+
+    private static void checkFieldRange(String name, int value, int maximum) {
+        if (value < 0 || value > maximum) {
+            throw new ModbusException("[mod4j] " + name + "必须在 0 至 " + maximum + " 之间");
+        }
     }
 
     /**

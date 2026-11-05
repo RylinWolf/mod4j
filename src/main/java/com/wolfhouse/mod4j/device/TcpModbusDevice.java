@@ -373,10 +373,9 @@ public class TcpModbusDevice implements ModbusDevice {
             case TCP -> ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
             case RTU -> ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
         };
-        int count = quantity & 0xFFFF;
-        int expectedReadBytes = communicationType == CommunicationType.TCP ? switch (funcCode & 0xFF) {
-            case 1, 2 -> (count + 7) / 8;
-            case 3, 4 -> count * 2;
+        int expectedReadBytes = communicationType == CommunicationType.TCP ? switch (funcCode) {
+            case 1, 2 -> (quantity + 7) / 8;
+            case 3, 4 -> quantity * 2;
             default -> -1;
         } : -1;
         return send(command, expectedReadBytes);

@@ -118,7 +118,10 @@ public class ModbusTcpSimulator implements AutoCloseable {
         }
 
         boolean bitRead = functionCode == 0x01 || functionCode == 0x02;
-        int maxQuantity = bitRead ? 2000 : 125;
+        int maxQuantity = ModbusProtocolUtils.maxReadQuantity(functionCode & 0xFF);
+        if (maxQuantity == 0) {
+            maxQuantity = 125;
+        }
         if (quantity < 1 || quantity > maxQuantity) {
             return exceptionResponse(functionCode, 0x03);
         }
@@ -280,7 +283,7 @@ public class ModbusTcpSimulator implements AutoCloseable {
         try (socket; InputStream is = socket.getInputStream();
              OutputStream os = socket.getOutputStream()) {
             while (!listener.isClosed()) {
-                byte[] request = isTcpStrategy ? readTcpRequest(is) : readRtuRequest(is);
+                byte[] request = isTcpStrategy ? readTcpRequest(is) : RtuSimulatorFrames.readRequest(is);
                 if (request == null) {
                     break;
                 }
@@ -342,18 +345,6 @@ public class ModbusTcpSimulator implements AutoCloseable {
         return request;
     }
 
-    private byte[] readRtuRequest(InputStream input) throws IOException {
-        // 此模拟器的 RTU 请求使用从站、功能码、地址、数量及 CRC，共 8 字节。
-        byte[] request = input.readNBytes(8);
-        if (request.length == 0) {
-            return null;
-        }
-        if (request.length != 8) {
-            throw new EOFException("RTU 请求不完整");
-        }
-        return request;
-    }
-
     private byte[] handleTcpRequest(byte[] request) throws InterruptedException {
         // MBAP(6) + slave + PDU
         byte[] pdu = new byte[request.length - 6];
@@ -375,26 +366,12 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     private byte[] handleRtuRequest(byte[] request) throws InterruptedException {
-        // CRC 校验
-        int receivedCrc   = ((request[request.length - 1] & 0xFF) << 8) | (request[request.length - 2] & 0xFF);
-        int calculatedCrc = ModbusProtocolUtils.calculateCrc(request, 0, request.length - 2);
-        if (receivedCrc != calculatedCrc) {
+        if (!RtuSimulatorFrames.hasValidCrc(request)) {
             logErr("[mod4j] 模拟器收到错误的 RTU CRC");
             return null;
         }
-        byte[] responseInnerPdu = getBytes(request);
-        if (responseInnerPdu == null) {
-            return null;
-        }
-
-        // RTU 响应: SlaveID(1) + PDU + CRC(2)
-        byte[] response = new byte[1 + responseInnerPdu.length + 2];
-        response[0] = request[0];
-        System.arraycopy(responseInnerPdu, 0, response, 1, responseInnerPdu.length);
-        int crc = ModbusProtocolUtils.calculateCrc(response, 0, 1 + responseInnerPdu.length);
-        response[response.length - 2] = (byte) (crc & 0xFF);
-        response[response.length - 1] = (byte) ((crc >> 8) & 0xFF);
-        return response;
+        byte[] pdu = getBytes(Arrays.copyOf(request, request.length - 2));
+        return pdu == null ? null : RtuSimulatorFrames.response(request[0], pdu);
     }
 
     /**

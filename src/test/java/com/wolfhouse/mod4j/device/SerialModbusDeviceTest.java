@@ -11,9 +11,14 @@ import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HexFormat;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -82,6 +87,59 @@ public class SerialModbusDeviceTest {
         }
     }
 
+    @Test(timeout = 5000)
+    public void disconnectClosesTheInputWhileARequestIsBlocked() throws Exception {
+        var enteredRead = new CountDownLatch(1);
+        var closed = new CountDownLatch(1);
+        var blockingInput = new InputStream() {
+            @Override
+            public int read() throws IOException {
+                enteredRead.countDown();
+                try {
+                    closed.await();
+                    return -1;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+            }
+
+            @Override
+            public void close() {
+                closed.countDown();
+            }
+        };
+        var device = new SerialModbusDevice(blockingInput, OutputStream.nullOutputStream());
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var pending = executor.submit(() -> device.sendRequest(1, 3, 0, 1));
+            try {
+                assertTrue(enteredRead.await(1, TimeUnit.SECONDS));
+                assertFalse(pending.isDone());
+                executor.submit(device::disconnect).get(1, TimeUnit.SECONDS);
+                var failure = assertThrows(ExecutionException.class, () -> pending.get(1, TimeUnit.SECONDS));
+                assertTrue(failure.getCause() instanceof ModbusIOException);
+                assertFalse(device.isConnected());
+            } finally {
+                blockingInput.close();
+                device.disconnect();
+            }
+        }
+    }
+
+    @Test
+    public void outOfRangeAddressNeverReachesSerialOutput() {
+        var output = new ByteArrayOutputStream();
+        var device = new SerialModbusDevice(InputStream.nullInputStream(), output);
+        try {
+            var failure = assertThrows(ModbusException.class, () -> device.sendRequest(1, 3, 65536, 1));
+            assertTrue(failure.getMessage().contains("地址"));
+            assertEquals(0, output.size());
+            assertTrue(device.isConnected());
+        } finally {
+            device.disconnect();
+        }
+    }
+
     private static final class TestSerialDevice extends SerialModbusDevice {
         private int opens;
         private SerialDeviceConfig openedConfig;
@@ -89,13 +147,13 @@ public class SerialModbusDeviceTest {
         private boolean failOpen;
 
         @Override
-        void openPort(SerialDeviceConfig config, int timeout) {
+        void openPort(SerialDeviceConfig config) {
             if (failOpen) {
                 throw new ModbusIOException("test open failure");
             }
             opens++;
             openedConfig = config;
-            openTimeout = timeout;
+            openTimeout = getTimeout();
             inputStream = InputStream.nullInputStream();
             outputStream = OutputStream.nullOutputStream();
         }
