@@ -12,7 +12,6 @@ import com.wolfhouse.mod4j.utils.ModbusProtocolUtils;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -58,17 +57,10 @@ public class TcpModbusDevice implements ModbusDevice {
      * TCP Socket
      */
     private volatile Socket socket;
+    private final Object connectionLock = new Object();
+    // 与收发锁独立。显式断开可以关闭阻塞中的 Socket，并作废旧请求的重连资格。
+    private long connectionGeneration;
     private boolean reconnectOnRequest;
-
-    /**
-     * 网络输入流
-     */
-    private DataInputStream inputStream;
-
-    /**
-     * 网络输出流
-     */
-    private OutputStream outputStream;
 
     /**
      * 是否开启心跳检测
@@ -88,9 +80,12 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public synchronized void connect(DeviceConfig config) throws ModbusException {
-        if (isConnected()) {
-            System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
-            return;
+        long generation;
+        synchronized (connectionLock) {
+            if (isConnected()) {
+                return;
+            }
+            generation = connectionGeneration;
         }
         checkSupported(config);
         TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
@@ -105,35 +100,56 @@ public class TcpModbusDevice implements ModbusDevice {
         this.modDeviceType = config.devType();
         this.communicationType = config.comType();
 
+        openConnection(generation);
+    }
+
+    private Socket openConnection(long generation) {
         Socket candidate = new Socket();
         try {
+            synchronized (connectionLock) {
+                checkGeneration(generation);
+                // 在阻塞建连之前登记 Socket，让断开操作也能取消正在建立的连接。
+                socket = candidate;
+            }
             candidate.connect(new InetSocketAddress(ip, port), timeout);
             candidate.setSoTimeout(timeout);
-            inputStream = new DataInputStream(candidate.getInputStream());
-            outputStream = candidate.getOutputStream();
-            socket = candidate;
-            reconnectOnRequest = false;
+            synchronized (connectionLock) {
+                checkGeneration(generation);
+                reconnectOnRequest = true;
+            }
             System.out.printf("[mod4j] TCP 设备 【%s】 连接成功%n", getDeviceId());
+            return candidate;
         } catch (IOException | RuntimeException e) {
-            try {
-                candidate.close();
-            } catch (IOException closeFailure) {
-                e.addSuppressed(closeFailure);
+            invalidateConnection(candidate, e);
+            if (e instanceof ModbusException failure) {
+                throw failure;
             }
             throw new ModbusIOException("[mod4j] TCP 连接失败: " + e.getMessage(), e);
         }
     }
 
+    private void checkGeneration(long generation) {
+        if (generation != connectionGeneration) {
+            throw new ModbusException("[mod4j] TCP 连接已主动断开");
+        }
+    }
+
     @Override
-    public synchronized void disconnect() throws ModbusException {
-        reconnectOnRequest = false;
-        Socket previousSocket = socket;
-        socket = null;
-        inputStream = null;
-        outputStream = null;
-        if (previousSocket != null) {
+    public void disconnect() throws ModbusException {
+        Socket previous;
+        synchronized (connectionLock) {
+            connectionGeneration++;
+            reconnectOnRequest = false;
+            previous = socket;
+            socket = null;
+        }
+        closeConnection(previous);
+    }
+
+    private void closeConnection(Socket connection) {
+        if (connection != null) {
             try {
-                previousSocket.close();
+                connection.close();
             } catch (IOException e) {
                 throw new ModbusIOException("[mod4j] 关闭 TCP Socket 异常: " + e.getMessage(), e);
             }
@@ -141,14 +157,36 @@ public class TcpModbusDevice implements ModbusDevice {
     }
 
     @Override
-    public synchronized void refresh() throws ModbusException {
-        if (communicationType == null) {
-            throw new ModbusException("[mod4j] TCP 设备尚未配置");
+    public void refresh() throws ModbusException {
+        long generation;
+        Socket previous;
+        synchronized (connectionLock) {
+            generation = ++connectionGeneration;
+            reconnectOnRequest = false;
+            previous = socket;
+            socket = null;
         }
-        disconnect();
-        reconnectOnRequest = true;
-        connect(new DeviceConfig(modDeviceType, communicationType, timeout,
-                new TcpDeviceConfig(ip, port, heartbeatStrategy, heartbeatEnabled)));
+        closeConnection(previous);
+        synchronized (this) {
+            if (communicationType == null) {
+                throw new ModbusException("[mod4j] TCP 设备尚未配置");
+            }
+            synchronized (connectionLock) {
+                checkGeneration(generation);
+                if (isConnected()) {
+                    return;
+                }
+            }
+            reconnect(generation);
+        }
+    }
+
+    private Socket reconnect(long generation) {
+        synchronized (connectionLock) {
+            checkGeneration(generation);
+            reconnectOnRequest = true;
+        }
+        return openConnection(generation);
     }
 
     @Override
@@ -166,6 +204,10 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     @Override
     public synchronized byte[] sendRawRequest(byte[] command) throws ModbusException {
+        return send(command, -1);
+    }
+
+    private byte[] send(byte[] command, int expectedReadBytes) {
         if (communicationType == null) {
             throw new ModbusException("[mod4j] TCP 设备尚未配置");
         }
@@ -177,22 +219,27 @@ public class TcpModbusDevice implements ModbusDevice {
 
         byte[] request = command.clone();
         boolean retryRead = isStandardRead(request, functionOffset);
-        if (!isConnected()) {
-            if (!reconnectOnRequest) {
+        long generation;
+        Socket connection;
+        synchronized (connectionLock) {
+            generation = connectionGeneration;
+            connection = socket;
+            if (connection == null && !reconnectOnRequest) {
                 throw new ModbusException("[mod4j] TCP 设备未连接");
             }
-            refresh();
+        }
+        if (connection == null) {
+            connection = reconnect(generation);
         }
 
         try {
-            return exchange(request);
+            return exchange(connection, request, expectedReadBytes);
         } catch (ModbusIOException e) {
             if (!retryRead) {
                 throw e;
             }
             try {
-                refresh();
-                return exchange(request);
+                return exchange(reconnect(generation), request, expectedReadBytes);
             } catch (ModbusException retryFailure) {
                 retryFailure.addSuppressed(e);
                 throw retryFailure;
@@ -215,41 +262,46 @@ public class TcpModbusDevice implements ModbusDevice {
                 == ModbusProtocolUtils.calculateCrc(request, 0, 6);
     }
 
-    private byte[] exchange(byte[] command) {
+    private byte[] exchange(Socket connection, byte[] command, int expectedReadBytes) {
         try {
-            outputStream.write(command);
-            outputStream.flush();
+            var output = connection.getOutputStream();
+            output.write(command);
+            output.flush();
+            var input = new DataInputStream(connection.getInputStream());
             return switch (communicationType) {
-                case TCP -> readTcpResponse(command);
-                case RTU -> RtuResponseReader.read(inputStream, command, timeout);
+                case TCP -> readTcpResponse(input, command, expectedReadBytes);
+                case RTU -> RtuResponseReader.read(input, command, timeout);
             };
         } catch (SocketTimeoutException e) {
             var failure = new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
-            invalidateConnection(failure);
+            invalidateConnection(connection, failure);
             throw failure;
         } catch (IOException e) {
             var failure = new ModbusIOException("[mod4j] TCP 通信异常: " + e.getMessage(), e);
-            invalidateConnection(failure);
+            invalidateConnection(connection, failure);
             throw failure;
         } catch (ModbusException e) {
-            invalidateConnection(e);
+            invalidateConnection(connection, e);
             throw e;
         }
     }
 
-    private void invalidateConnection(ModbusException failure) {
+    private void invalidateConnection(Socket connection, Throwable failure) {
+        synchronized (connectionLock) {
+            if (socket == connection) {
+                socket = null;
+            }
+        }
         try {
-            disconnect();
+            closeConnection(connection);
         } catch (ModbusException closeFailure) {
             failure.addSuppressed(closeFailure);
-        } finally {
-            reconnectOnRequest = true;
         }
     }
 
-    private byte[] readTcpResponse(byte[] command) throws IOException {
+    private byte[] readTcpResponse(DataInputStream input, byte[] command, int expectedReadBytes) throws IOException {
         byte[] header = new byte[7];
-        inputStream.readFully(header);
+        input.readFully(header);
         int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
         if (length < 2 || length > 254 || header[2] != 0 || header[3] != 0
                 || header[0] != command[0] || header[1] != command[1] || header[6] != command[6]) {
@@ -257,7 +309,7 @@ public class TcpModbusDevice implements ModbusDevice {
         }
 
         byte[] response = Arrays.copyOf(header, 6 + length);
-        inputStream.readFully(response, header.length, length - 1);
+        input.readFully(response, header.length, length - 1);
         int function = response[7] & 0xFF;
         int requestedFunction = command[7] & 0xFF;
         if (function == (requestedFunction | 0x80) && length == 3) {
@@ -265,6 +317,10 @@ public class TcpModbusDevice implements ModbusDevice {
         }
         if (function != requestedFunction || (function & 0x80) != 0) {
             throw new ModbusException("[mod4j] TCP 响应功能码与请求不匹配");
+        }
+        if (expectedReadBytes >= 0 && (response.length != 9 + expectedReadBytes
+                || (response[8] & 0xFF) != expectedReadBytes)) {
+            throw new ModbusException("[mod4j] TCP 读取响应数据长度与请求数量不匹配");
         }
         return response;
     }
@@ -298,9 +354,10 @@ public class TcpModbusDevice implements ModbusDevice {
             throw new IllegalArgumentException("超时时间不能为负数");
         }
         this.timeout = timeout;
-        if (socket != null && !socket.isClosed()) {
+        Socket current = socket;
+        if (current != null && !current.isClosed()) {
             try {
-                socket.setSoTimeout(timeout);
+                current.setSoTimeout(timeout);
             } catch (IOException e) {
                 System.err.println("[mod4j] 设置 Socket 超时失败: " + e.getMessage());
             }
@@ -316,7 +373,13 @@ public class TcpModbusDevice implements ModbusDevice {
             case TCP -> ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
             case RTU -> ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
         };
-        return sendRawRequest(command);
+        int count = quantity & 0xFFFF;
+        int expectedReadBytes = communicationType == CommunicationType.TCP ? switch (funcCode & 0xFF) {
+            case 1, 2 -> (count + 7) / 8;
+            case 3, 4 -> count * 2;
+            default -> -1;
+        } : -1;
+        return send(command, expectedReadBytes);
     }
 
     @Override

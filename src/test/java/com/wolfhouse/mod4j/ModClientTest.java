@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -95,6 +96,40 @@ public class ModClientTest {
                 assertFalse(device.isConnected());
                 assertFalse(client.isDeviceConnected(config.getDeviceId()));
                 assertThrows(ModbusException.class, () -> device.sendRequest(1, 3, 0, 1));
+            }
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test(timeout = 8000)
+    public void shutdownCancelsAnUnboundedReadWithoutReconnecting() throws Exception {
+        var client = new ModbusClient();
+        try (var listener = new ServerSocket(0, 0, InetAddress.getByName(LOOPBACK));
+             var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            listener.setSoTimeout(1500);
+            var tcpConfig = new TcpDeviceConfig().setIp(LOOPBACK).setPort(listener.getLocalPort());
+            var config = new DeviceConfig(ModDeviceType.TCP, CommunicationType.TCP, 0, tcpConfig);
+            var device = client.connectDevice(config);
+            try (var peer = listener.accept()) {
+                peer.setSoTimeout(1500);
+                var read = client.sendRequestAsync(config.getDeviceId(), 1, 3, 0, 1);
+                assertEquals(12, peer.getInputStream().readNBytes(12).length);
+                assertFalse(read.isDone());
+
+                var shutdown = executor.submit(client::shutdown);
+                try {
+                    shutdown.get(2, TimeUnit.SECONDS);
+                    assertThrows(ExecutionException.class, () -> read.get(1, TimeUnit.SECONDS));
+                    assertEquals(-1, peer.getInputStream().read());
+                    assertFalse(device.isConnected());
+                    assertTrue(client.getConnectedDevices().isEmpty());
+                    listener.setSoTimeout(250);
+                    assertThrows(SocketTimeoutException.class, listener::accept);
+                } finally {
+                    // 失败时也释放对端，避免回归中的无限读阻塞测试清理。
+                    listener.close();
+                }
             }
         } finally {
             client.shutdown();

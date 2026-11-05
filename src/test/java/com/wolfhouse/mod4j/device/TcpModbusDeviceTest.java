@@ -71,6 +71,39 @@ public class TcpModbusDeviceTest {
     }
 
     @Test(timeout = 6000)
+    public void parameterizedTcpReadRejectsMalformedData() throws Exception {
+        assertInvalidResponse(response -> response[5] = 2, 8);
+        assertInvalidResponse(response -> response[8] = 1, 11);
+        assertInvalidResponse(response -> {
+            response[5] = 4;
+            response[8] = 1;
+        }, 10);
+    }
+
+    @Test(timeout = 6000)
+    public void rawTcpWriteReturnsTheMatchedFrameWithoutValidatingTheEcho() throws Exception {
+        byte[] request = HEX.parseHex("002000000006010600000009");
+        byte[] response = HEX.parseHex("00200000000601060001000a");
+        try (var listener = newListener(); var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var server = executor.submit(() -> {
+                try (var socket = accept(listener)) {
+                    assertArrayEquals(request, readRequest(socket, 12));
+                    socket.getOutputStream().write(response);
+                }
+                return null;
+            });
+
+            var device = connect(listener, CommunicationType.TCP, 1500);
+            try {
+                assertArrayEquals(response, device.sendRawRequest(request));
+                server.get(2, TimeUnit.SECONDS);
+            } finally {
+                device.disconnect();
+            }
+        }
+    }
+
+    @Test(timeout = 6000)
     public void writeIsNeverReplayedAfterPeerReceivesIt() throws Exception {
         assertWriteIsNotReplayed(CommunicationType.TCP, HEX.parseHex("002000000006010600000009"));
         assertWriteIsNotReplayed(CommunicationType.RTU, withCrc(HEX.parseHex("010600000009")));

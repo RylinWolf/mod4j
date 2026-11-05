@@ -72,7 +72,7 @@ public class ReadHoldingRegister {
 }
 ```
 
-`DeviceConfig` 的超时参数以毫秒计，用于 TCP 建连和读取，以及串口读取。寄存器地址使用设备报文中的地址偏移，请根据设备手册换算。SDK 校验 TCP 响应头或 RTU CRC，响应仍以原始字节数组返回，应用负责解码设备数据和处理 Modbus 异常响应。RTU 厂商扩展若没有 SDK 可识别的帧长，需要配置正数读取超时作为报文边界。
+`DeviceConfig` 的超时参数以毫秒计，用于 TCP 建连和读取，以及串口读取。寄存器地址使用设备报文中的地址偏移，请根据设备手册换算。SDK 校验 TCP 响应头或 RTU CRC。参数化 TCP 读请求还会校验响应数据长度是否与请求数量相符。响应以原始字节数组返回，由应用解码设备数据和处理 Modbus 异常响应。RTU 厂商扩展若没有 SDK 可识别的帧长，需要配置正数读取超时作为报文边界。
 
 对于需要携带额外数据的写请求，例如 `0x0F` 或 `0x10`，应自行组帧后调用 `sendRawRequest`。TCP 连接异常时，SDK 只会对格式明确的标准读请求重试一次。写请求只发送一次，若收不到响应，执行结果由调用方核实。
 
@@ -85,6 +85,6 @@ public class ReadHoldingRegister {
 
 ## 模拟器与测试
 
-- [`ModbusTcpSimulator`](src/main/java/com/wolfhouse/mod4j/utils/ModbusTcpSimulator.java) 可监听 TCP 端口，配置从站地址、功能码、寄存器数据、响应延迟和响应成功率。默认使用 Modbus TCP，构造时传入 `false` 可切换为 RTU over TCP。
+- [`ModbusTcpSimulator`](src/main/java/com/wolfhouse/mod4j/utils/ModbusTcpSimulator.java) 可监听 TCP 端口，配置十进制从站地址、功能码、寄存器或按位打包的数据、响应延迟和响应成功率。默认使用 Modbus TCP，构造时传入 `false` 可切换为 RTU over TCP，接收带地址、数量和 CRC 的 8 字节请求。
 - [`ModbusRtuSimulator`](src/main/java/com/wolfhouse/mod4j/utils/ModbusRtuSimulator.java) 接收输入输出流，可配合 Java 管道流模拟 RTU 收发。
 - `mvn test` 运行回归测试。测试使用本机回环端口和内存流，无需连接外部设备。

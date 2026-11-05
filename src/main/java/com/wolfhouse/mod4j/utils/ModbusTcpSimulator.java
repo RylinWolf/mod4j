@@ -32,9 +32,9 @@ public class ModbusTcpSimulator implements AutoCloseable {
     private ExecutorService simulatorStarterService;
     private ExecutorService executorService;
     /** 虚拟响应结果封装, 主机号 - 响应结果封装 */
-    private final Map<String, ArrayList<MockRespPair>> mockRespMap      = new ConcurrentHashMap<>();
+    private final Map<Integer, ArrayList<MockRespPair>> mockRespMap      = new ConcurrentHashMap<>();
     /** 虚拟响应延时配置映射, 主机号 - 延时配置封装 */
-    private final Map<String, TimeoutOpt>              timeoutOptMap    = new ConcurrentHashMap<>();
+    private final Map<Integer, TimeoutOpt>              timeoutOptMap    = new ConcurrentHashMap<>();
     /** 全局虚拟延时配置，生效范围当前实例(端口)，优先级低于主机号配置 */
     @Getter
     @Setter
@@ -86,36 +86,25 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     private byte[] getBytes(byte[] pdu) throws InterruptedException {
-        // 该方法接受的 pdu 是完整的 modbus 报文
-        // 返回的报文从功能码开始，不包括主机位
-        byte slaveAddr         = pdu[0];
-        byte functionCode      = pdu[1];
-        int  registerAddrValue = ((pdu[2] & 0xFF) << 8) | (pdu[3] & 0xFF);
-
-        int quantity = 1;
-        if (pdu.length >= 6) {
-            // 读取请求的数量字段（连读时需要）
-            quantity = ((pdu[4] & 0xFF) << 8) | (pdu[5] & 0xFF);
+        int unitId = pdu[0] & 0xFF;
+        byte functionCode = pdu[1];
+        if (pdu.length < 6) {
+            return exceptionResponse(functionCode, 0x03);
         }
-
-        return getMockResp(slaveAddr, registerAddrValue, functionCode, quantity);
+        int address = ((pdu[2] & 0xFF) << 8) | (pdu[3] & 0xFF);
+        int quantity = ((pdu[4] & 0xFF) << 8) | (pdu[5] & 0xFF);
+        return getMockResp(unitId, address, functionCode, quantity);
     }
 
-    private byte[] getMockResp(byte slaveAddr, int registerAddrValue, byte functionCode, int quantity) throws InterruptedException {
-        String hostKey = String.format("%02x", slaveAddr & 0xFF);
-        // 延时配置
-        TimeoutOpt timeoutOpt = timeoutOptMap.get(hostKey);
-        if (timeoutOpt == null) {
-            timeoutOpt = globalTimeoutOpt;
-        }
+    private byte[] getMockResp(int unitId, int registerAddrValue, byte functionCode, int quantity) throws InterruptedException {
+        TimeoutOpt timeoutOpt = timeoutOptMap.getOrDefault(unitId, globalTimeoutOpt);
         if (!RandomUtils.boolWithProbability(timeoutOpt.successRate)) {
-            // 概率配置：响应不成功
             return null;
         }
         // 通过主机位(从机地址)确定要返回的虚拟数据列表
-        ArrayList<MockRespPair> pairs = mockRespMap.get(hostKey);
+        ArrayList<MockRespPair> pairs = mockRespMap.get(unitId);
         if (pairs == null || pairs.isEmpty()) {
-            return new byte[]{};
+            return exceptionResponse(functionCode, 0x02);
         }
 
         // 过滤出功能码匹配的响应
@@ -125,12 +114,20 @@ public class ModbusTcpSimulator implements AutoCloseable {
                                                .toList();
 
         if (matchedPairs.isEmpty()) {
-            return new byte[]{};
+            return exceptionResponse(functionCode, 0x01);
         }
 
-        // 构建数据并返回
-        // Modbus 读响应格式: [功能码(1B)] + [字节数(1B)] + [数据(N*B)]
-        // 注意：01, 02 功能码返回的是位数据，此处通用逻辑暂按字节处理（主要是 03, 04）
+        boolean bitRead = functionCode == 0x01 || functionCode == 0x02;
+        int maxQuantity = bitRead ? 2000 : 125;
+        if (quantity < 1 || quantity > maxQuantity) {
+            return exceptionResponse(functionCode, 0x03);
+        }
+
+        TimeUnit.MILLISECONDS.sleep((long) RandomUtils.getGaussian(timeoutOpt.mean, timeoutOpt.std));
+        if (bitRead) {
+            return bitResponse(functionCode, registerAddrValue, quantity, matchedPairs);
+        }
+
         int    byteCount = quantity * 2;
         byte[] response  = new byte[2 + byteCount];
         response[0] = functionCode;
@@ -174,9 +171,35 @@ public class ModbusTcpSimulator implements AutoCloseable {
                 }
             }
         }
-        // 模拟器响应延迟
-        TimeUnit.MILLISECONDS.sleep((long) RandomUtils.getGaussian(timeoutOpt.mean, timeoutOpt.std));
         return response;
+    }
+
+    private byte[] bitResponse(byte functionCode, int address, int quantity, List<MockRespPair> pairs) {
+        int byteCount = (quantity + 7) / 8;
+        byte[] response = new byte[2 + byteCount];
+        response[0] = functionCode;
+        response[1] = (byte) byteCount;
+        for (MockRespPair pair : pairs) {
+            byte[] data = pair.data();
+            int byteLength = pair.randData() ? pair.dataSize()
+                    : data == null ? 0 : Math.min(pair.dataSize(), data.length);
+            for (int bit = 0; bit < quantity; bit++) {
+                long sourceBit = (long) address + bit - pair.registerAddr();
+                if (sourceBit < 0 || sourceBit >= 8L * byteLength) {
+                    continue;
+                }
+                boolean set = pair.randData() ? ThreadLocalRandom.current().nextBoolean()
+                        : (data[(int) (sourceBit / 8)] & (1 << (sourceBit % 8))) != 0;
+                int index = 2 + bit / 8;
+                int mask = 1 << (bit % 8);
+                response[index] = (byte) (set ? response[index] | mask : response[index] & ~mask);
+            }
+        }
+        return response;
+    }
+
+    private byte[] exceptionResponse(byte functionCode, int exceptionCode) {
+        return new byte[]{(byte) (functionCode | 0x80), (byte) exceptionCode};
     }
 
     /**
@@ -256,9 +279,8 @@ public class ModbusTcpSimulator implements AutoCloseable {
     private void handleClient(Socket socket, ServerSocket listener) {
         try (socket; InputStream is = socket.getInputStream();
              OutputStream os = socket.getOutputStream()) {
-            byte[] buffer = new byte[1024];
             while (!listener.isClosed()) {
-                byte[] request = isTcpStrategy ? readTcpRequest(is) : readRtuRequest(is, buffer);
+                byte[] request = isTcpStrategy ? readTcpRequest(is) : readRtuRequest(is);
                 if (request == null) {
                     break;
                 }
@@ -320,9 +342,16 @@ public class ModbusTcpSimulator implements AutoCloseable {
         return request;
     }
 
-    private byte[] readRtuRequest(InputStream input, byte[] buffer) throws IOException {
-        int size = input.read(buffer);
-        return size == -1 ? null : Arrays.copyOf(buffer, size);
+    private byte[] readRtuRequest(InputStream input) throws IOException {
+        // 此模拟器的 RTU 请求使用从站、功能码、地址、数量及 CRC，共 8 字节。
+        byte[] request = input.readNBytes(8);
+        if (request.length == 0) {
+            return null;
+        }
+        if (request.length != 8) {
+            throw new EOFException("RTU 请求不完整");
+        }
+        return request;
     }
 
     private byte[] handleTcpRequest(byte[] request) throws InterruptedException {
@@ -346,16 +375,12 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     private byte[] handleRtuRequest(byte[] request) throws InterruptedException {
-        // 不符合长度要求
-        if (request.length < 4) {
-            return null;
-        }
         // CRC 校验
         int receivedCrc   = ((request[request.length - 1] & 0xFF) << 8) | (request[request.length - 2] & 0xFF);
         int calculatedCrc = ModbusProtocolUtils.calculateCrc(request, 0, request.length - 2);
         if (receivedCrc != calculatedCrc) {
             logErr("[mod4j] 模拟器收到错误的 RTU CRC");
-            // return null; // Or handle it
+            return null;
         }
         byte[] responseInnerPdu = getBytes(request);
         if (responseInnerPdu == null) {
@@ -375,13 +400,11 @@ public class ModbusTcpSimulator implements AutoCloseable {
     /**
      * 为指定主机号添加虚拟响应结果
      *
-     * @param host 主机号
+     * @param host 十进制从站地址（0 至 255）
      * @param pair 虚拟响应结果
      */
     public List<MockRespPair> addMockResp(String host, MockRespPair pair) {
-        // 限制主机位为一位（两个Hex）
-        host = "%02x".formatted(Integer.parseInt(host));
-        ArrayList<MockRespPair> list = mockRespMap.computeIfAbsent(host, _ -> new ArrayList<>());
+        ArrayList<MockRespPair> list = mockRespMap.computeIfAbsent(parseUnitId(host), _ -> new ArrayList<>());
         list.add(pair);
         return list;
     }
@@ -389,11 +412,19 @@ public class ModbusTcpSimulator implements AutoCloseable {
     /**
      * 为指定主机号添加虚拟延时配置
      *
-     * @param host       主机号
+     * @param host       十进制从站地址（0 至 255）
      * @param timeoutOpt 延时配置
      */
     public void addTimeoutOpt(String host, TimeoutOpt timeoutOpt) {
-        timeoutOptMap.put(host, timeoutOpt);
+        timeoutOptMap.put(parseUnitId(host), timeoutOpt);
+    }
+
+    private int parseUnitId(String host) {
+        int unitId = Integer.parseInt(host);
+        if (unitId < 0 || unitId > 255) {
+            throw new IllegalArgumentException("从站地址必须在 0 至 255 之间");
+        }
+        return unitId;
     }
 
     /**
@@ -411,10 +442,10 @@ public class ModbusTcpSimulator implements AutoCloseable {
     /**
      * 虚拟结果封装
      *
-     * @param registerAddr 寄存器地址
+     * @param registerAddr 起始寄存器、线圈或离散输入地址
      * @param dataSize     数据长度（字节数）
      * @param randData     是否随机数据
-     * @param data         数据
+     * @param data         数据，位数据从最低有效位开始打包
      * @param functionCode 功能码
      */
     public record MockRespPair(int registerAddr,

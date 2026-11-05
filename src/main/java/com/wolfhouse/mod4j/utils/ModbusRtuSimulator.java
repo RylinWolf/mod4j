@@ -88,8 +88,8 @@ public class ModbusRtuSimulator {
                     responsePdu = new byte[]{0x01, 0x01, 0x01};
                 } else {
                     // 其他回环
-                    responsePdu = new byte[read - 2];
-                    System.arraycopy(buffer, 0, responsePdu, 0, read - 2);
+                    responsePdu = new byte[read - 3];
+                    System.arraycopy(buffer, 1, responsePdu, 0, responsePdu.length);
                 }
 
                 // 构建带 SlaveID 和 CRC 的响应
