@@ -10,14 +10,15 @@ import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
 import com.wolfhouse.mod4j.facade.ModbusClient;
 import com.wolfhouse.mod4j.utils.ModbusProtocolUtils;
 
+import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
 
 /**
  * TCP 设备实现
@@ -51,17 +52,18 @@ public class TcpModbusDevice implements ModbusDevice {
     /**
      * 超时时间
      */
-    private int timeout = DEFAULT_TIMEOUT;
+    private volatile int timeout = DEFAULT_TIMEOUT;
 
     /**
      * TCP Socket
      */
-    private Socket socket;
+    private volatile Socket socket;
+    private boolean reconnectOnRequest;
 
     /**
      * 网络输入流
      */
-    private InputStream inputStream;
+    private DataInputStream inputStream;
 
     /**
      * 网络输出流
@@ -71,11 +73,11 @@ public class TcpModbusDevice implements ModbusDevice {
     /**
      * 是否开启心跳检测
      */
-    private boolean           heartbeatEnabled = true;
+    private volatile boolean heartbeatEnabled;
     /**
      * 心跳策略，默认为读取 0 号寄存器
      */
-    private HeartbeatStrategy heartbeatStrategy;
+    private volatile HeartbeatStrategy heartbeatStrategy;
     private ModbusClient      client;
 
     /**
@@ -90,79 +92,69 @@ public class TcpModbusDevice implements ModbusDevice {
             System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
             return;
         }
-        // 检查是否支持该连接类型
         checkSupported(config);
-        try {
-            TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
-            this.ip                = tcpConfig.getIp();
-            this.port              = tcpConfig.getPort();
-            this.heartbeatStrategy = tcpConfig.getHeartbeatStrategy();
-            this.heartbeatEnabled  = this.heartbeatStrategy != null && tcpConfig.isHeartbeatEnabled();
-            this.timeout           = config.timeout();
-            this.modDeviceType     = config.devType();
-            this.communicationType = config.comType();
-            System.out.println("[mod4j] 正在连接 TCP 设备: " + ip + ":" + port + " 类型: " + communicationType);
+        TcpDeviceConfig tcpConfig = (TcpDeviceConfig) config.config();
+        if (config.comType() == null || config.timeout() < 0) {
+            throw new ModbusException("[mod4j] TCP 报文格式或超时配置无效");
+        }
+        this.ip = tcpConfig.getIp();
+        this.port = tcpConfig.getPort();
+        this.heartbeatStrategy = tcpConfig.getHeartbeatStrategy();
+        this.heartbeatEnabled = tcpConfig.isHeartbeatEnabled();
+        this.timeout = config.timeout();
+        this.modDeviceType = config.devType();
+        this.communicationType = config.comType();
 
-            this.socket = new Socket(ip, port);
-            this.socket.setSoTimeout(this.timeout);
-            this.inputStream  = socket.getInputStream();
-            this.outputStream = socket.getOutputStream();
+        Socket candidate = new Socket();
+        try {
+            candidate.connect(new InetSocketAddress(ip, port), timeout);
+            candidate.setSoTimeout(timeout);
+            inputStream = new DataInputStream(candidate.getInputStream());
+            outputStream = candidate.getOutputStream();
+            socket = candidate;
+            reconnectOnRequest = false;
             System.out.printf("[mod4j] TCP 设备 【%s】 连接成功%n", getDeviceId());
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            try {
+                candidate.close();
+            } catch (IOException closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
             throw new ModbusIOException("[mod4j] TCP 连接失败: " + e.getMessage(), e);
         }
     }
 
     @Override
     public synchronized void disconnect() throws ModbusException {
-        System.out.println("[mod4j] 断开 TCP 连接: " + getDeviceId());
-        ModbusException firstException = null;
-        try {
-            if (inputStream != null) {
-                inputStream.close();
-            }
-        } catch (IOException e) {
-            firstException = new ModbusIOException("[mod4j] 关闭 TCP 输入流异常: " + e.getMessage(), e);
-        }
-
-        try {
-            if (outputStream != null) {
-                outputStream.close();
-            }
-        } catch (IOException e) {
-            if (firstException == null) {
-                firstException = new ModbusIOException("[mod4j] 关闭 TCP 输出流异常: " + e.getMessage(), e);
-            }
-        }
-
-        try {
-            if (socket != null) {
-                socket.close();
-            }
-        } catch (IOException e) {
-            if (firstException == null) {
-                firstException = new ModbusIOException("[mod4j] 关闭 TCP Socket 异常: " + e.getMessage(), e);
-            }
-        }
-
-        inputStream  = null;
+        reconnectOnRequest = false;
+        Socket previousSocket = socket;
+        socket = null;
+        inputStream = null;
         outputStream = null;
-        socket       = null;
-
-        if (firstException != null) {
-            throw firstException;
+        if (previousSocket != null) {
+            try {
+                previousSocket.close();
+            } catch (IOException e) {
+                throw new ModbusIOException("[mod4j] 关闭 TCP Socket 异常: " + e.getMessage(), e);
+            }
         }
     }
 
     @Override
     public synchronized void refresh() throws ModbusException {
+        if (communicationType == null) {
+            throw new ModbusException("[mod4j] TCP 设备尚未配置");
+        }
         disconnect();
-        connect(new DeviceConfig(modDeviceType, communicationType, timeout, new TcpDeviceConfig(ip, port, heartbeatStrategy, isHeartbeatEnabled())));
+        reconnectOnRequest = true;
+        connect(new DeviceConfig(modDeviceType, communicationType, timeout,
+                new TcpDeviceConfig(ip, port, heartbeatStrategy, heartbeatEnabled)));
     }
 
     @Override
     public boolean isConnected() {
-        return socket != null && socket.isConnected() && !socket.isClosed();
+        Socket current = socket;
+        return current != null && current.isConnected() && !current.isClosed();
     }
 
     /**
@@ -174,130 +166,107 @@ public class TcpModbusDevice implements ModbusDevice {
      */
     @Override
     public synchronized byte[] sendRawRequest(byte[] command) throws ModbusException {
-        try {
-            return trySendRawRequest(command);
-        } catch (SocketTimeoutException e) {
-            throw new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
-        } catch (IOException | ModbusException e) {
-            System.err.printf("[mod4j] TCP 通信异常: %s, 正在重试...%n", e.getMessage());
-            return retryOnRefresh(() -> {
-                try {
-                    return this.trySendRawRequest(command);
-                } catch (IOException ex) {
-                    throw new ModbusIOException("[mod4j] 重试失败", ex);
-                }
-            });
+        if (communicationType == null) {
+            throw new ModbusException("[mod4j] TCP 设备尚未配置");
         }
-    }
+        int functionOffset = communicationType == CommunicationType.TCP ? 7 : 1;
+        int minLength = communicationType == CommunicationType.TCP ? 8 : 4;
+        if (command == null || command.length < minLength) {
+            throw new ModbusException("[mod4j] 请求报文过短");
+        }
 
-    /**
-     * 发送原始字节指令
-     *
-     * @param command 原始字节指令
-     * @return 设备响应命令
-     * @throws ModbusException 失败时的异常
-     * @throws IOException     IO 异常
-     */
-    private byte[] trySendRawRequest(byte[] command) throws ModbusException, IOException {
+        byte[] request = command.clone();
+        boolean retryRead = isStandardRead(request, functionOffset);
         if (!isConnected()) {
-            throw new ModbusException("[mod4j] 设备未连接");
-        }
-        outputStream.write(command);
-        outputStream.flush();
-
-        // 根据模式读取并构造完整响应
-        return switch (communicationType) {
-            case TCP -> readResponse();
-            case RTU -> readRtuResponse();
-        };
-    }
-
-
-    /**
-     * 刷新连接并重试
-     *
-     * @param supplier 要重试的操作
-     * @param <T>      返回类型
-     * @return 要重试的操作的返回值
-     */
-    private <T> T retryOnRefresh(Supplier<T> supplier) {
-        try {
-            refresh();
-        } catch (ModbusException ignored) {
-        }
-        return supplier.get();
-    }
-
-    /**
-     * 读取 Modbus TCP 响应
-     *
-     * @return 完整响应报文
-     * @throws IOException     IO 异常
-     * @throws ModbusException 协议异常
-     */
-    private byte[] readResponse() throws IOException, ModbusException {
-        // 读取响应头。Modbus TCP 响应头有 7 字节 (MBAP 头)
-        // Transaction ID (2), Protocol ID (2), Length (2), Unit ID (1)
-        byte[] header = readBytes(7);
-
-        // 第 5-6 字节是后续长度 (包含 Unit ID 和 PDU)
-        int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
-        // length 至少应为 1 (Unit ID)
-        if (length <= 1) {
-            return header;
-        }
-
-        // 读取剩余部分 (PDU)
-        // 已经读取了 Unit ID (header[6]), 所以还需要读取 length - 1 字节
-        byte[] pdu = readBytes(length - 1);
-
-        byte[] fullResponse = new byte[7 + pdu.length];
-        System.arraycopy(header, 0, fullResponse, 0, 7);
-        System.arraycopy(pdu, 0, fullResponse, 7, pdu.length);
-        return fullResponse;
-    }
-
-    /**
-     * 读取 Modbus RTU (over TCP) 响应
-     *
-     * @return 完整响应报文
-     * @throws IOException IO 异常
-     */
-    private byte[] readRtuResponse() throws IOException {
-        byte[] buffer    = new byte[1024];
-        long   startTime = System.currentTimeMillis();
-        int    totalRead = 0;
-
-        // 阻塞读取第一个字节
-        int firstByte = inputStream.read();
-        if (firstByte == -1) {
-            throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败: %s".formatted(port));
-        }
-        buffer[totalRead++] = (byte) firstByte;
-
-        // 循环读取，直到没有更多数据或总时间超过 2 倍超时时间
-        return readBuffer(inputStream, timeout, startTime, buffer, totalRead);
-    }
-
-    /**
-     * 阻塞读取指定数量的字节
-     *
-     * @param n 要读取的字节数
-     * @return 读取到的字节数组
-     * @throws IOException     IO 异常
-     * @throws ModbusException 连接关闭异常
-     */
-    private byte[] readBytes(int n) throws IOException, ModbusException {
-        byte[] data      = new byte[n];
-        int    totalRead = 0;
-        while (totalRead < n) {
-            int read = inputStream.read(data, totalRead, n - totalRead);
-            if (read == -1) {
-                throw new ModbusIOException("[mod4j] 连接已关闭，读取数据失败: %s".formatted(port));
+            if (!reconnectOnRequest) {
+                throw new ModbusException("[mod4j] TCP 设备未连接");
             }
-            totalRead += read;
+            refresh();
         }
-        return data;
+
+        try {
+            return exchange(request);
+        } catch (ModbusIOException e) {
+            if (!retryRead) {
+                throw e;
+            }
+            try {
+                refresh();
+                return exchange(request);
+            } catch (ModbusException retryFailure) {
+                retryFailure.addSuppressed(e);
+                throw retryFailure;
+            }
+        }
+    }
+
+    private boolean isStandardRead(byte[] request, int functionOffset) {
+        // 仅重发格式明确的标准读请求。写入或厂商命令的执行结果可能未知。
+        int function = request[functionOffset] & 0xFF;
+        if (function < 1 || function > 4) {
+            return false;
+        }
+        if (communicationType == CommunicationType.TCP) {
+            return request.length == 12
+                    && request[2] == 0 && request[3] == 0 && request[4] == 0 && request[5] == 6;
+        }
+        return request.length == 8
+                && (((request[7] & 0xFF) << 8) | (request[6] & 0xFF))
+                == ModbusProtocolUtils.calculateCrc(request, 0, 6);
+    }
+
+    private byte[] exchange(byte[] command) {
+        try {
+            outputStream.write(command);
+            outputStream.flush();
+            return switch (communicationType) {
+                case TCP -> readTcpResponse(command);
+                case RTU -> RtuResponseReader.read(inputStream, command, timeout);
+            };
+        } catch (SocketTimeoutException e) {
+            var failure = new ModbusTimeoutException("[mod4j] TCP 通信超时: " + e.getMessage());
+            invalidateConnection(failure);
+            throw failure;
+        } catch (IOException e) {
+            var failure = new ModbusIOException("[mod4j] TCP 通信异常: " + e.getMessage(), e);
+            invalidateConnection(failure);
+            throw failure;
+        } catch (ModbusException e) {
+            invalidateConnection(e);
+            throw e;
+        }
+    }
+
+    private void invalidateConnection(ModbusException failure) {
+        try {
+            disconnect();
+        } catch (ModbusException closeFailure) {
+            failure.addSuppressed(closeFailure);
+        } finally {
+            reconnectOnRequest = true;
+        }
+    }
+
+    private byte[] readTcpResponse(byte[] command) throws IOException {
+        byte[] header = new byte[7];
+        inputStream.readFully(header);
+        int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
+        if (length < 2 || length > 254 || header[2] != 0 || header[3] != 0
+                || header[0] != command[0] || header[1] != command[1] || header[6] != command[6]) {
+            throw new ModbusException("[mod4j] TCP 响应 MBAP 头无效或与请求不匹配");
+        }
+
+        byte[] response = Arrays.copyOf(header, 6 + length);
+        inputStream.readFully(response, header.length, length - 1);
+        int function = response[7] & 0xFF;
+        int requestedFunction = command[7] & 0xFF;
+        if (function == (requestedFunction | 0x80) && length == 3) {
+            return response;
+        }
+        if (function != requestedFunction || (function & 0x80) != 0) {
+            throw new ModbusException("[mod4j] TCP 响应功能码与请求不匹配");
+        }
+        return response;
     }
 
     /**
@@ -324,7 +293,10 @@ public class TcpModbusDevice implements ModbusDevice {
     }
 
     @Override
-    public void setTimeout(int timeout) {
+    public synchronized void setTimeout(int timeout) {
+        if (timeout < 0) {
+            throw new IllegalArgumentException("超时时间不能为负数");
+        }
         this.timeout = timeout;
         if (socket != null && !socket.isClosed()) {
             try {
@@ -336,7 +308,10 @@ public class TcpModbusDevice implements ModbusDevice {
     }
 
     @Override
-    public byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
+    public synchronized byte[] sendRequest(int slaveId, int funcCode, int address, int quantity) throws ModbusException {
+        if (communicationType == null) {
+            throw new ModbusException("[mod4j] TCP 设备尚未配置");
+        }
         byte[] command = switch (communicationType) {
             case TCP -> ModbusProtocolUtils.buildTcpPdu(slaveId, funcCode, address, quantity);
             case RTU -> ModbusProtocolUtils.buildRtuPdu(slaveId, funcCode, address, quantity);
@@ -346,8 +321,9 @@ public class TcpModbusDevice implements ModbusDevice {
 
     @Override
     public void ping() throws ModbusException {
-        if (heartbeatStrategy != null) {
-            heartbeatStrategy.execute(this);
+        HeartbeatStrategy strategy = heartbeatStrategy;
+        if (strategy != null) {
+            strategy.execute(this);
         } else {
             // 回退到默认逻辑
             sendRequest(1, 3, 0, 1);
@@ -377,7 +353,7 @@ public class TcpModbusDevice implements ModbusDevice {
     /**
      * 获取 TCP 设备标识符
      *
-     * @return 格式为 "TCP:IP:Port" 的字符串
+     * @return 格式为 "TCP:IP:Port-通信类型" 的字符串
      */
     @Override
     public String getDeviceId() {

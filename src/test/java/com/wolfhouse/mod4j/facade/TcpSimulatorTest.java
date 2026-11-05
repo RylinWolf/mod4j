@@ -2,62 +2,66 @@ package com.wolfhouse.mod4j.facade;
 
 import com.wolfhouse.mod4j.utils.ModbusTcpSimulator;
 import com.wolfhouse.mod4j.utils.ModbusTcpSimulator.MockRespPair;
-import org.junit.After;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.util.HexFormat;
 
-/**
- * @author Rylin Wolf
- */
+import static org.junit.Assert.*;
+
 public class TcpSimulatorTest {
-    List<ModbusTcpSimulator> simulators = new ArrayList<>();
+    private static final String LOOPBACK = "127.0.0.1";
+    private static final HexFormat HEX = HexFormat.of();
 
-    @After
-    public void tearDown() {
-        simulators.forEach(ModbusTcpSimulator::stop);
-    }
-
-    @Test
-    public void start() {
-        // 5502
-        simulators.add(start5502());
-        // 5503
-        simulators.add(start5503());
-        join();
-    }
-
-    ModbusTcpSimulator start5502() {
-        return startPort(5502, "1", List.of(
-                new MockRespPair(0x0000, 8, false, new byte[]{0x01, (byte) 0x82, 0, 0, 0x02, (byte) 0x43, 0, 0}),
-                new MockRespPair(10003, 4, true, null)));
-    }
-
-    ModbusTcpSimulator start5503() {
-        return startPort(5503, "1", List.of(
-                new MockRespPair(10030, 2, false, new byte[]{0x00, 0x01}),
-                new MockRespPair(10031, 2, false, new byte[]{0x00, 0x01}),
-                new MockRespPair(10051, 400, true, null)));
-    }
-
-    ModbusTcpSimulator startPort(int port, String slaveAddr, List<ModbusTcpSimulator.MockRespPair> pairs) {
-        ModbusTcpSimulator simulator = new ModbusTcpSimulator(port);
-        simulator.addMockResp(slaveAddr, pairs.getFirst())
-                 .addAll(pairs.subList(1, pairs.size()));
-        try {
+    @Test(timeout = 5000)
+    public void simulatorServesSplitAndCoalescedRequestsWithoutExternalDevices() throws Exception {
+        try (var simulator = simulator()) {
+            simulator.addMockResp("1", new MockRespPair(0, 2, false, new byte[]{0, 42}));
             simulator.start();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            try (var socket = new Socket(LOOPBACK, simulator.getLocalPort())) {
+                socket.setSoTimeout(1500);
+                byte[] request = HEX.parseHex("000100000006010300000001");
+                byte[] second = HEX.parseHex("000200000006010300000001");
+                var out = socket.getOutputStream();
+                out.write(request, 0, 4);
+                Thread.sleep(50);
+                // 一次写入前一帧尾部与下一帧。
+                byte[] tail = new byte[request.length - 4 + second.length];
+                System.arraycopy(request, 4, tail, 0, request.length - 4);
+                System.arraycopy(second, 0, tail, request.length - 4, second.length);
+                out.write(tail);
+
+                assertArrayEquals(HEX.parseHex("000100000005010302002a000200000005010302002a"),
+                        socket.getInputStream().readNBytes(22));
+            }
         }
-        return simulator;
     }
 
-    void join() {
-        Scanner scanner = new Scanner(System.in);
-        while (!scanner.nextLine().equals("y")) {
+    @Test(timeout = 5000)
+    public void stopClosesIdleClientsAndAllowsRestart() throws Exception {
+        try (var simulator = simulator()) {
+            simulator.addMockResp("1", new MockRespPair(0, 2, false, new byte[]{0, 42}));
+            simulator.start();
+            try (var socket = new Socket(LOOPBACK, simulator.getLocalPort())) {
+                socket.setSoTimeout(1500);
+                socket.getOutputStream().write(HEX.parseHex("000100000006010300000001"));
+                assertEquals(11, socket.getInputStream().readNBytes(11).length);
+                simulator.stop();
+                assertEquals(-1, socket.getInputStream().read());
+                assertEquals(-1, simulator.getLocalPort());
+            }
+            simulator.start();
+            assertTrue(simulator.getLocalPort() > 0);
+            try (var socket = new Socket(LOOPBACK, simulator.getLocalPort())) {
+                socket.setSoTimeout(1500);
+                socket.getOutputStream().write(HEX.parseHex("000200000006010300000001"));
+                assertArrayEquals(HEX.parseHex("000200000005010302002a"), socket.getInputStream().readNBytes(11));
+            }
         }
+    }
+
+    private static ModbusTcpSimulator simulator() {
+        return new ModbusTcpSimulator(new InetSocketAddress(LOOPBACK, 0), true);
     }
 }

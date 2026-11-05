@@ -2,6 +2,7 @@ package com.wolfhouse.mod4j.device;
 
 import com.fazecast.jSerialComm.SerialPort;
 import com.fazecast.jSerialComm.SerialPortInvalidPortException;
+import com.fazecast.jSerialComm.SerialPortTimeoutException;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.SerialDeviceConfig;
 import com.wolfhouse.mod4j.enums.CommunicationType;
@@ -12,6 +13,7 @@ import com.wolfhouse.mod4j.exception.ModbusTimeoutException;
 import com.wolfhouse.mod4j.facade.ModbusClient;
 import com.wolfhouse.mod4j.utils.ModbusProtocolUtils;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -40,33 +42,24 @@ public class SerialModbusDevice implements ModbusDevice {
      * 串口名称
      */
     private              String       portName;
-    /**
-     * 波特率
-     */
-    private              int          baudRate;
-    /** 校验位 */
-    private              int          parity;
-    /** 停止位 */
-    private              int          stopBits;
-    /** 数据位 */
-    private              int          dataBits;
+    private SerialDeviceConfig portConfig;
     /**
      * 超时时间
      */
-    private              int          timeout         = DEFAULT_TIMEOUT;
+    private volatile     int          timeout         = DEFAULT_TIMEOUT;
     /**
      * jSerialComm 串口对象
      */
-    private              SerialPort   serialPort;
+    private volatile     SerialPort   serialPort;
 
     /**
      * 是否开启心跳检测
      */
-    private boolean           heartbeatEnabled  = true;
+    private volatile boolean heartbeatEnabled = true;
     /**
      * 心跳策略，默认为读取 0 号寄存器
      */
-    private HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
+    private volatile HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
     private ModbusClient      client;
 
     /**
@@ -93,39 +86,40 @@ public class SerialModbusDevice implements ModbusDevice {
             System.out.println("[mod4j] 设备已连接，无需重复连接: " + getDeviceId());
             return;
         }
-        // 检查是否支持该连接类型
         checkSupported(config);
-
-        // 解析参数
-        SerialDeviceConfig serialConfig = (SerialDeviceConfig) config.config();
-        this.portName = serialConfig.getPort();
-        this.timeout  = config.timeout();
-        this.baudRate = serialConfig.getBaudRate();
-        this.parity   = serialConfig.getParity();
-        this.stopBits = serialConfig.getStopBits();
-        this.dataBits = serialConfig.getDataBits();
-        System.out.println("[mod4j] 正在连接串口: " + portName + " 波特率: " + baudRate);
-
-        try {
-            this.serialPort = SerialPort.getCommPort(portName);
-        } catch (SerialPortInvalidPortException e) {
-            clearStatements();
-            throw new ModbusIOException("[mod4j] 串口不可用: %s, throws: %s".formatted(portName, e.getMessage()));
+        if (config.comType() != CommunicationType.RTU || config.timeout() < 0) {
+            throw new ModbusException("[mod4j] 串口设备需要 RTU 报文格式和非负超时");
         }
-        this.serialPort.setBaudRate(baudRate);
-        this.serialPort.setParity(this.parity);
-        this.serialPort.setNumStopBits(this.stopBits);
-        this.serialPort.setNumDataBits(this.dataBits);
-        this.serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, this.timeout, 0);
+        SerialDeviceConfig serialConfig = (SerialDeviceConfig) config.config();
+        portConfig = new SerialDeviceConfig(serialConfig.getPort(), serialConfig.getBaudRate(),
+                serialConfig.getDataBits(), serialConfig.getStopBits(), serialConfig.getParity());
+        portName = portConfig.getPort();
+        timeout = config.timeout();
+        openPort(portConfig, timeout);
+    }
 
-        if (this.serialPort.openPort()) {
-            this.inputStream  = this.serialPort.getInputStream();
-            this.outputStream = this.serialPort.getOutputStream();
-            System.out.printf("[mod4j] 串口 %s 连接成功%n", portName);
-        } else {
-            // 清除状态
+    void openPort(SerialDeviceConfig config, int timeout) {
+        SerialPort candidate;
+        try {
+            candidate = SerialPort.getCommPort(config.getPort());
+        } catch (SerialPortInvalidPortException e) {
+            throw new ModbusIOException("[mod4j] 串口不可用: " + config.getPort(), e);
+        }
+
+        candidate.setComPortParameters(config.getBaudRate(), config.getDataBits(),
+                config.getStopBits(), config.getParity());
+        candidate.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, timeout, 0);
+        if (!candidate.openPort()) {
+            throw new ModbusIOException("[mod4j] 无法打开串口: " + config.getPort());
+        }
+        try {
+            inputStream = candidate.getInputStream();
+            outputStream = candidate.getOutputStream();
+            serialPort = candidate;
+        } catch (RuntimeException e) {
+            candidate.closePort();
             clearStatements();
-            throw new ModbusIOException("[mod4j] 无法打开串口: " + portName);
+            throw new ModbusIOException("[mod4j] 初始化串口流失败: " + config.getPort(), e);
         }
     }
 
@@ -174,16 +168,18 @@ public class SerialModbusDevice implements ModbusDevice {
 
     @Override
     public synchronized void refresh() throws ModbusException {
-        disconnect();
-        if (serialPort != null) {
-            connect(new DeviceConfig(ModDeviceType.SERIAL, CommunicationType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, 8, 1, 0)));
+        if (portConfig == null) {
+            throw new ModbusException("[mod4j] 串口设备尚无可用于重连的端口配置");
         }
+        disconnect();
+        openPort(portConfig, timeout);
     }
 
     @Override
     public boolean isConnected() {
-        if (serialPort != null) {
-            return serialPort.isOpen();
+        SerialPort current = serialPort;
+        if (current != null) {
+            return current.isOpen();
         }
         return inputStream != null && outputStream != null;
     }
@@ -193,50 +189,19 @@ public class SerialModbusDevice implements ModbusDevice {
         if (!isConnected()) {
             throw new ModbusException("[mod4j] 串口未连接");
         }
+        if (command == null || command.length < 4) {
+            throw new ModbusException("[mod4j] RTU 请求报文过短");
+        }
         try {
             outputStream.write(command);
             outputStream.flush();
-
-            // 串口读取通常需要更复杂的逻辑，比如根据功能码判断长度
-            // 这里我们先进行阻塞读取，并增加超时检测
-            return readResponse();
+            return RtuResponseReader.read(new DataInputStream(inputStream), command, timeout);
+        } catch (SerialPortTimeoutException e) {
+            throw new ModbusTimeoutException("[mod4j] 串口通信超时: " + e.getMessage());
         } catch (IOException e) {
             throw new ModbusIOException("[mod4j] 串口通信异常: " + e.getMessage(), e);
         }
     }
-
-    /**
-     * 读取串口响应
-     *
-     * @return 响应报文
-     * @throws IOException     IO 异常
-     * @throws ModbusException Modbus 异常
-     */
-    private byte[] readResponse() throws IOException, ModbusException {
-        // 对于 RTU，响应长度是不固定的。
-        // 标准做法是先读取 3 个字节（从站 ID, 功能码, 异常码/字节数）来判断后续长度。
-        // 但为了简单且健壮，可以利用串口的超时机制和可用字节数进行读取。
-
-        long startTime = System.currentTimeMillis();
-        // 预设一个足够大的缓冲区
-        byte[] buffer = new byte[512];
-        int    totalRead;
-
-        // 第一次读取，会阻塞直到超时或有数据
-        int read = inputStream.read(buffer, 0, buffer.length);
-        if (read < 0) {
-            throw new ModbusIOException("[mod4j] 串口连接已关闭");
-        }
-        if (read == 0) {
-            throw new ModbusTimeoutException("[mod4j] 串口通信超时，未收到响应");
-        }
-        totalRead = read;
-
-        // 循环读取，直到没有更多数据或总时间超过 2 倍超时时间（防止死循环）
-        // 串口数据可能会分片到达
-        return readBuffer(inputStream, timeout, startTime, buffer, totalRead);
-    }
-
 
     /**
      * 设置关联的客户端（用于获取线程池）
@@ -263,7 +228,10 @@ public class SerialModbusDevice implements ModbusDevice {
     }
 
     @Override
-    public void setTimeout(int timeout) {
+    public synchronized void setTimeout(int timeout) {
+        if (timeout < 0) {
+            throw new IllegalArgumentException("超时时间不能为负数");
+        }
         this.timeout = timeout;
         if (serialPort != null && serialPort.isOpen()) {
             serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, timeout, 0);
@@ -278,8 +246,9 @@ public class SerialModbusDevice implements ModbusDevice {
 
     @Override
     public void ping() throws ModbusException {
-        if (heartbeatStrategy != null) {
-            heartbeatStrategy.execute(this);
+        HeartbeatStrategy strategy = heartbeatStrategy;
+        if (strategy != null) {
+            strategy.execute(this);
         } else {
             // 回退到默认逻辑
             sendRequest(1, 3, 0, 1);
@@ -309,11 +278,11 @@ public class SerialModbusDevice implements ModbusDevice {
     /**
      * 获取 RTU 设备标识符
      *
-     * @return 格式为 "RTU:PortName" 的字符串
+     * @return 格式为 "RTU:PortName-RTU" 的字符串
      */
     @Override
     public String getDeviceId() {
-        return new DeviceConfig(ModDeviceType.SERIAL, CommunicationType.RTU, timeout, new SerialDeviceConfig(portName, baudRate, dataBits, stopBits, parity)).getDeviceId();
+        return "RTU:%s-RTU".formatted(portName);
     }
 
     @Override

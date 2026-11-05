@@ -1,17 +1,21 @@
 package com.wolfhouse.mod4j.utils;
 
+import lombok.Getter;
 import lombok.Setter;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
@@ -22,16 +26,19 @@ import java.util.function.Consumer;
  * @author Rylin Wolf
  */
 public class ModbusTcpSimulator implements AutoCloseable {
-    private final int                                  port;
-    /** 是否为 TCP 通信方式（非 RTU） */
-    private final boolean                              isTcpStrategy;
-    /** 模拟器启动器线程池 */
-    private final ExecutorService                      simulatorStarterService;
-    /** 模拟器请求处理器线程池 */
-    private final ExecutorService                      executorService;
-    private final AtomicBoolean                        running     = new AtomicBoolean(false);
+    private final InetSocketAddress bindAddress;
+    private final boolean isTcpStrategy;
+    private final Set<Socket> clients = ConcurrentHashMap.newKeySet();
+    private ExecutorService simulatorStarterService;
+    private ExecutorService executorService;
     /** 虚拟响应结果封装, 主机号 - 响应结果封装 */
-    private final Map<String, ArrayList<MockRespPair>> mockRespMap = new ConcurrentHashMap<>();
+    private final Map<String, ArrayList<MockRespPair>> mockRespMap      = new ConcurrentHashMap<>();
+    /** 虚拟响应延时配置映射, 主机号 - 延时配置封装 */
+    private final Map<String, TimeoutOpt>              timeoutOptMap    = new ConcurrentHashMap<>();
+    /** 全局虚拟延时配置，生效范围当前实例(端口)，优先级低于主机号配置 */
+    @Getter
+    @Setter
+    private       TimeoutOpt                           globalTimeoutOpt = new TimeoutOpt(0, 0, 1.0);
     private       ServerSocket                         serverSocket;
     @Setter
     private       Consumer<String>                     logConsumer;
@@ -47,23 +54,21 @@ public class ModbusTcpSimulator implements AutoCloseable {
     }
 
     public ModbusTcpSimulator(int port, boolean isTcpStrategy) {
-        this.isTcpStrategy           = isTcpStrategy;
-        this.port                    = port;
-        this.simulatorStarterService = new ThreadPoolExecutor(
-                1,
-                1,
-                0L, TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
-                Executors.defaultThreadFactory()
-        );
-        this.executorService         = new ThreadPoolExecutor(
-                // 核心线程数
-                6,
-                // 最大线程数
-                24,
-                60L, TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
-                Executors.defaultThreadFactory());
+        this(new InetSocketAddress(port), isTcpStrategy);
+    }
+
+    public ModbusTcpSimulator(InetSocketAddress bindAddress, boolean isTcpStrategy) {
+        this.bindAddress = bindAddress;
+        this.isTcpStrategy = isTcpStrategy;
+    }
+
+    /**
+     * 获取实际监听端口。传入端口 0 时由系统分配。
+     *
+     * @return 实际端口，未启动时为 -1
+     */
+    public synchronized int getLocalPort() {
+        return serverSocket == null ? -1 : serverSocket.getLocalPort();
     }
 
     private void log(String message) {
@@ -80,7 +85,7 @@ public class ModbusTcpSimulator implements AutoCloseable {
         System.err.println(message);
     }
 
-    private byte[] getBytes(byte[] pdu) {
+    private byte[] getBytes(byte[] pdu) throws InterruptedException {
         // 该方法接受的 pdu 是完整的 modbus 报文
         // 返回的报文从功能码开始，不包括主机位
         byte slaveAddr         = pdu[0];
@@ -96,10 +101,19 @@ public class ModbusTcpSimulator implements AutoCloseable {
         return getMockResp(slaveAddr, registerAddrValue, functionCode, quantity);
     }
 
-    private byte[] getMockResp(byte slaveAddr, int registerAddrValue, byte functionCode, int quantity) {
+    private byte[] getMockResp(byte slaveAddr, int registerAddrValue, byte functionCode, int quantity) throws InterruptedException {
+        String hostKey = String.format("%02x", slaveAddr & 0xFF);
+        // 延时配置
+        TimeoutOpt timeoutOpt = timeoutOptMap.get(hostKey);
+        if (timeoutOpt == null) {
+            timeoutOpt = globalTimeoutOpt;
+        }
+        if (!RandomUtils.boolWithProbability(timeoutOpt.successRate)) {
+            // 概率配置：响应不成功
+            return null;
+        }
         // 通过主机位(从机地址)确定要返回的虚拟数据列表
-        String                  hostKey = String.format("%02x", slaveAddr & 0xFF);
-        ArrayList<MockRespPair> pairs   = mockRespMap.get(hostKey);
+        ArrayList<MockRespPair> pairs = mockRespMap.get(hostKey);
         if (pairs == null || pairs.isEmpty()) {
             return new byte[]{};
         }
@@ -160,7 +174,8 @@ public class ModbusTcpSimulator implements AutoCloseable {
                 }
             }
         }
-
+        // 模拟器响应延迟
+        TimeUnit.MILLISECONDS.sleep((long) RandomUtils.getGaussian(timeoutOpt.mean, timeoutOpt.std));
         return response;
     }
 
@@ -169,72 +184,90 @@ public class ModbusTcpSimulator implements AutoCloseable {
      *
      * @throws IOException 如果无法启动服务器
      */
-    public void start() throws IOException {
-        if (running.compareAndSet(false, true)) {
-            serverSocket = new ServerSocket(port);
-            log("[mod4j] Modbus TCP 模拟器已启动，监听端口: " + port);
+    public synchronized void start() throws IOException {
+        if (serverSocket != null) {
+            return;
+        }
+        ServerSocket listener = new ServerSocket();
+        try {
+            listener.bind(bindAddress);
+        } catch (IOException | RuntimeException e) {
+            listener.close();
+            throw e;
+        }
 
-            simulatorStarterService.execute(() -> {
-                while (running.get()) {
-                    try {
-                        Socket clientSocket = serverSocket.accept();
-                        CompletableFuture.runAsync(() -> handleClient(clientSocket), executorService)
-                                         .exceptionally(e -> {
-                                             if (running.get()) {
-                                                 logErr("[mod4j] 模拟器接受连接异常: " + e);
-                                             }
-                                             return null;
-                                         });
-                    } catch (IOException e) {
-                        if (running.get()) {
-                            logErr("[mod4j] 模拟器接受连接异常: " + e);
+        serverSocket = listener;
+        simulatorStarterService = Executors.newSingleThreadExecutor();
+        executorService = new ThreadPoolExecutor(6, 24, 60L, TimeUnit.SECONDS,
+                new SynchronousQueue<>());
+        simulatorStarterService.execute(() -> acceptClients(listener));
+        log("[mod4j] Modbus TCP 模拟器已启动，监听端口: " + listener.getLocalPort());
+    }
+
+    private void acceptClients(ServerSocket listener) {
+        while (!listener.isClosed()) {
+            try {
+                Socket client = listener.accept();
+                synchronized (this) {
+                    if (serverSocket == listener) {
+                        clients.add(client);
+                        try {
+                            executorService.execute(() -> handleClient(client, listener));
+                            continue;
+                        } catch (RejectedExecutionException e) {
+                            clients.remove(client);
+                            logErr("[mod4j] 模拟器连接数已达上限");
                         }
                     }
                 }
-            });
-        }
-    }
-
-    /**
-     * 停止模拟器
-     */
-    public void stop() {
-        if (running.compareAndSet(true, false)) {
-            try {
-                if (serverSocket != null) {
-                    serverSocket.close();
-                }
+                client.close();
             } catch (IOException e) {
-                logErr("[mod4j] 关闭模拟器 ServerSocket 异常: " + e.getMessage());
+                if (!listener.isClosed()) {
+                    logErr("[mod4j] 模拟器接受连接异常: " + e);
+                }
             }
-            executorService.shutdownNow();
-            log("[mod4j] Modbus TCP 模拟器已停止");
         }
     }
 
     /**
-     * 处理客户端连接
-     *
-     * @param socket 客户端 Socket
+     * 停止模拟器并关闭已有客户端连接。
      */
-    private void handleClient(Socket socket) {
+    public synchronized void stop() {
+        if (serverSocket == null) {
+            return;
+        }
+        closeSocket(serverSocket);
+        serverSocket = null;
+        clients.forEach(this::closeSocket);
+        clients.clear();
+        simulatorStarterService.shutdownNow();
+        executorService.shutdownNow();
+        log("[mod4j] Modbus TCP 模拟器已停止");
+    }
+
+    private void closeSocket(java.io.Closeable socket) {
+        try {
+            socket.close();
+        } catch (IOException e) {
+            logErr("[mod4j] 关闭模拟器 Socket 异常: " + e.getMessage());
+        }
+    }
+
+    private void handleClient(Socket socket, ServerSocket listener) {
         try (socket; InputStream is = socket.getInputStream();
              OutputStream os = socket.getOutputStream()) {
             byte[] buffer = new byte[1024];
-            while (running.get()) {
-                int read = is.read(buffer);
-                if (read == -1) {
+            while (!listener.isClosed()) {
+                byte[] request = isTcpStrategy ? readTcpRequest(is) : readRtuRequest(is, buffer);
+                if (request == null) {
                     break;
                 }
-
-                byte[] request = new byte[read];
-                System.arraycopy(buffer, 0, request, 0, read);
 
                 StringBuilder sb = new StringBuilder();
                 for (byte b : request) {
                     sb.append(String.format("%02x", b));
                 }
-                log(String.format("[%s] 收到请求: %s", this.port, sb));
+                log(String.format("[%s] 收到请求: %s", listener.getLocalPort(), sb));
                 byte[] response;
                 if (isTcpStrategy) {
                     response = handleTcpRequest(request);
@@ -242,7 +275,7 @@ public class ModbusTcpSimulator implements AutoCloseable {
                     response = handleRtuRequest(request);
                 }
                 if (response == null) {
-                    logErr("响应为空，可能是请求有误，跳过处理");
+                    logErr("响应为空，可能是响应不成功(成功率配置不为 1) 或请求有误，跳过处理");
                     continue;
                 }
                 // 写入响应并刷新
@@ -253,20 +286,54 @@ public class ModbusTcpSimulator implements AutoCloseable {
                 for (byte b : response) {
                     respSb.append(String.format("%02x", b));
                 }
-                log(String.format("[%s] 发送响应: %s", this.port, respSb));
+                log(String.format("[%s] 发送响应: %s", listener.getLocalPort(), respSb));
             }
         } catch (IOException e) {
-            if (running.get()) {
-                log(String.format("[mod4j] 模拟器处理客户端连接异常: %s", e.getMessage()));
+            if (!listener.isClosed()) {
+                logErr(String.format("[mod4j] 模拟器处理客户端连接异常: %s", e.getMessage()));
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException e) {
+            logErr(String.format("[mod4j] 模拟器发生异常: %s", e.getMessage()));
+        } finally {
+            clients.remove(socket);
         }
     }
 
-    private byte[] handleTcpRequest(byte[] request) {
+    private byte[] readTcpRequest(InputStream input) throws IOException {
+        byte[] header = input.readNBytes(6);
+        if (header.length == 0) {
+            return null;
+        }
+        if (header.length != 6) {
+            throw new EOFException("TCP 请求头不完整");
+        }
+        int length = ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
+        if (length < 2 || length > 254 || header[2] != 0 || header[3] != 0) {
+            throw new IOException("TCP 请求头无效");
+        }
+        byte[] request = Arrays.copyOf(header, header.length + length);
+        if (input.readNBytes(request, header.length, length) != length) {
+            throw new EOFException("TCP 请求数据不完整");
+        }
+        return request;
+    }
+
+    private byte[] readRtuRequest(InputStream input, byte[] buffer) throws IOException {
+        int size = input.read(buffer);
+        return size == -1 ? null : Arrays.copyOf(buffer, size);
+    }
+
+    private byte[] handleTcpRequest(byte[] request) throws InterruptedException {
         // MBAP(6) + slave + PDU
         byte[] pdu = new byte[request.length - 6];
         System.arraycopy(request, 6, pdu, 0, pdu.length);
         byte[] responsePdu = getBytes(pdu);
+        if (responsePdu == null) {
+            // 概率响应不成功
+            return null;
+        }
 
         byte[] response = new byte[7 + responsePdu.length];
         System.arraycopy(request, 0, response, 0, 4); // TID, PID
@@ -278,7 +345,7 @@ public class ModbusTcpSimulator implements AutoCloseable {
         return response;
     }
 
-    private byte[] handleRtuRequest(byte[] request) {
+    private byte[] handleRtuRequest(byte[] request) throws InterruptedException {
         // 不符合长度要求
         if (request.length < 4) {
             return null;
@@ -287,10 +354,13 @@ public class ModbusTcpSimulator implements AutoCloseable {
         int receivedCrc   = ((request[request.length - 1] & 0xFF) << 8) | (request[request.length - 2] & 0xFF);
         int calculatedCrc = ModbusProtocolUtils.calculateCrc(request, 0, request.length - 2);
         if (receivedCrc != calculatedCrc) {
-            System.err.println("[mod4j] 模拟器收到错误的 RTU CRC");
+            logErr("[mod4j] 模拟器收到错误的 RTU CRC");
             // return null; // Or handle it
         }
         byte[] responseInnerPdu = getBytes(request);
+        if (responseInnerPdu == null) {
+            return null;
+        }
 
         // RTU 响应: SlaveID(1) + PDU + CRC(2)
         byte[] response = new byte[1 + responseInnerPdu.length + 2];
@@ -314,6 +384,16 @@ public class ModbusTcpSimulator implements AutoCloseable {
         ArrayList<MockRespPair> list = mockRespMap.computeIfAbsent(host, _ -> new ArrayList<>());
         list.add(pair);
         return list;
+    }
+
+    /**
+     * 为指定主机号添加虚拟延时配置
+     *
+     * @param host       主机号
+     * @param timeoutOpt 延时配置
+     */
+    public void addTimeoutOpt(String host, TimeoutOpt timeoutOpt) {
+        timeoutOptMap.put(host, timeoutOpt);
     }
 
     /**
@@ -353,4 +433,18 @@ public class ModbusTcpSimulator implements AutoCloseable {
         }
     }
 
+    /**
+     * 延时配置
+     *
+     * @param mean        延时均值
+     * @param std         延时标准差
+     * @param successRate 延时成功率
+     */
+    public record TimeoutOpt(int mean, int std, double successRate) {
+        public TimeoutOpt {
+            if (mean < 0 || std < 0 || successRate < 0 || successRate > 1) {
+                throw new IllegalArgumentException("延时参数配置有误：" + this);
+            }
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package com.wolfhouse.mod4j.utils;
 
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -88,8 +89,9 @@ public class ModbusProtocolUtils {
      * @return 计算出的 CRC16 值
      */
     public static int calculateCrc(byte[] data, int off, int len) {
+        Objects.checkFromIndexSize(off, len, data.length);
         int crc = 0xFFFF;
-        for (int i = off; i < len; i++) {
+        for (int i = off; i < off + len; i++) {
             crc ^= (data[i] & 0xFF);
             for (int j = 0; j < 8; j++) {
                 if ((crc & 0x0001) != 0) {

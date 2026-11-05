@@ -2,6 +2,7 @@ package com.wolfhouse.mod4j.device.conf;
 
 import com.wolfhouse.mod4j.device.HeartbeatStrategy;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
@@ -25,7 +26,8 @@ public class TcpDeviceConfig extends AbstractDeviceConfig {
     /** 端口号 */
     private int               port;
     /** 心跳监测策略 */
+    @Builder.Default
     private HeartbeatStrategy heartbeatStrategy = device -> device.sendRequest(1, 3, 0, 1);
     /** 启动心跳监测策略 */
-    private boolean           heartbeatEnabled  = false;
+    private boolean           heartbeatEnabled;
 }

@@ -4,7 +4,6 @@ import com.wolfhouse.mod4j.device.ModbusDevice;
 import com.wolfhouse.mod4j.device.SerialModbusDevice;
 import com.wolfhouse.mod4j.device.TcpModbusDevice;
 import com.wolfhouse.mod4j.device.conf.DeviceConfig;
-import com.wolfhouse.mod4j.enums.ModDeviceType;
 import com.wolfhouse.mod4j.event.AbstractModbusEvent;
 import com.wolfhouse.mod4j.event.DeviceConnectedEvent;
 import com.wolfhouse.mod4j.event.DeviceDisconnectedEvent;
@@ -15,6 +14,8 @@ import lombok.Getter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Modbus SDK 门面类，用于管理已连接设备并提供统一的通信入口
@@ -47,7 +48,10 @@ public class ModbusClient {
     /**
      * 心跳定时任务线程池
      */
-    private       ScheduledExecutorService  heartbeatExecutor;
+    private ScheduledExecutorService heartbeatExecutor;
+    private final Set<String> heartbeatsInFlight = ConcurrentHashMap.newKeySet();
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+    private volatile boolean closed;
 
     /**
      * 开启心跳检测
@@ -55,6 +59,12 @@ public class ModbusClient {
      * @param interval 检查间隔（秒）
      */
     public synchronized void startHeartbeat(int interval) {
+        if (closed) {
+            throw new ModbusException("[mod4j] 客户端已关闭");
+        }
+        if (interval <= 0) {
+            throw new IllegalArgumentException("心跳间隔必须大于零");
+        }
         if (heartbeatExecutor != null && !heartbeatExecutor.isShutdown()) {
             return;
         }
@@ -63,7 +73,8 @@ public class ModbusClient {
             t.setDaemon(true);
             return t;
         });
-        heartbeatExecutor.scheduleAtFixedRate(this::checkDevices, interval, interval, TimeUnit.SECONDS);
+        ScheduledExecutorService monitor = heartbeatExecutor;
+        monitor.scheduleAtFixedRate(() -> checkDevices(monitor), interval, interval, TimeUnit.SECONDS);
         System.out.println("[mod4j] 心跳检测已启动，间隔: " + interval + "s");
     }
 
@@ -74,6 +85,7 @@ public class ModbusClient {
         if (heartbeatExecutor != null) {
             heartbeatExecutor.shutdownNow();
             heartbeatExecutor = null;
+            notifyAll();
             System.out.println("[mod4j] 心跳检测已停止");
         }
     }
@@ -81,56 +93,72 @@ public class ModbusClient {
     /**
      * 检查所有设备的连接状态
      */
-    private void checkDevices() {
-        for (ModbusDevice device : connectedDevices.values()) {
-            if (!device.isHeartbeatEnabled()) {
-                continue;
+    private void checkDevices(ScheduledExecutorService monitor) {
+        connectedDevices.forEach((deviceId, device) -> {
+            if (monitor.isShutdown() || !device.isHeartbeatEnabled() || !heartbeatsInFlight.add(deviceId)) {
+                return;
             }
-            String deviceId = device.getDeviceId();
-            // 在心跳线程中异步执行，避免一个设备阻塞导致心跳整体延迟
-            CompletableFuture.runAsync(() -> {
-                try {
-                    device.ping();
-                } catch (ModbusException e) {
-                    System.err.println("[mod4j] 设备心跳丢失: " + deviceId + ", 错误: " + e.getMessage());
-                    handleDeviceFailure(device);
-                }
-            }, operationExecutor);
+            try {
+                operationExecutor.execute(() -> checkDevice(deviceId, device, monitor));
+            } catch (RejectedExecutionException e) {
+                heartbeatsInFlight.remove(deviceId);
+            }
+        });
+    }
+
+    private void checkDevice(String deviceId, ModbusDevice device, ScheduledExecutorService monitor) {
+        try {
+            if (!monitor.isShutdown() && connectedDevices.get(deviceId) == device) {
+                device.ping();
+            }
+        } catch (ModbusException e) {
+            System.err.println("[mod4j] 设备心跳丢失: " + deviceId + ", 错误: " + e.getMessage());
+            recoverDevice(deviceId, device, monitor);
+        } finally {
+            heartbeatsInFlight.remove(deviceId);
         }
     }
 
-    /**
-     * 处理设备失败
-     *
-     * @param device 失败的设备
-     */
-    private void handleDeviceFailure(ModbusDevice device) {
-        String deviceId = device.getDeviceId();
-
-        while (connectedDevices.containsKey(deviceId)) {
-            boolean isPersistent = persistentDevices.contains(deviceId);
-            try {
-                System.out.println("[mod4j] 尝试恢复设备连接: " + deviceId);
-                device.refresh();
-                System.out.println("[mod4j] 设备恢复成功: " + deviceId);
-                publishEvent(new DeviceConnectedEvent(device));
-                break;
-            } catch (ModbusException re) {
-                System.err.println("[mod4j] 设备恢复失败: " + deviceId + ", 错误: " + re.getMessage());
-                if (!isPersistent) {
-                    System.err.println("[mod4j] 非常连接设备，正在移除: " + deviceId);
-                    connectedDevices.remove(deviceId);
-                    break;
+    private void recoverDevice(String deviceId, ModbusDevice device, ScheduledExecutorService monitor) {
+        var retry = new AtomicBoolean();
+        do {
+            retry.set(false);
+            // 与同 ID 的显式连接、断开互斥，并核对设备实例，避免旧任务恢复已移除的设备。
+            connectedDevices.computeIfPresent(deviceId, (id, current) -> {
+                if (current != device || monitor.isShutdown()) {
+                    return current;
                 }
-                // 常连接设备，无限重试（此处加延迟）
                 try {
-                    TimeUnit.SECONDS.sleep(10);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
+                    device.refresh();
+                    publishEvent(new DeviceConnectedEvent(device));
+                    return device;
+                } catch (ModbusException e) {
+                    System.err.println("[mod4j] 设备恢复失败: " + id + ", 错误: " + e.getMessage());
+                    if (persistentDevices.contains(id)) {
+                        retry.set(true);
+                        return device;
+                    }
+                    return null;
                 }
+            });
+        } while (retry.get() && awaitRecoveryRetry(deviceId, device, monitor));
+    }
+
+    private synchronized boolean awaitRecoveryRetry(String deviceId, ModbusDevice device,
+                                                    ScheduledExecutorService monitor) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        try {
+            while (!monitor.isShutdown() && connectedDevices.get(deviceId) == device) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    return true;
+                }
+                TimeUnit.NANOSECONDS.timedWait(this, remaining);
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
+        return false;
     }
 
     /**
@@ -141,35 +169,41 @@ public class ModbusClient {
      * @throws ModbusException 如果连接失败
      */
     public ModbusDevice connectDevice(DeviceConfig config) throws ModbusException {
-        String deviceId = config.getDeviceId();
-        // 1. 检查当前是否已有该设备
-        if (connectedDevices.containsKey(deviceId)) {
-            ModbusDevice existingDevice = connectedDevices.get(deviceId);
-            if (existingDevice.isConnected()) {
-                System.out.println("[mod4j] 设备已连接，返回现有对象: " + deviceId);
-                return existingDevice;
+        return connectDevice(config, false);
+    }
+
+    private ModbusDevice connectDevice(DeviceConfig config, boolean persistent) {
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                throw new ModbusException("[mod4j] 客户端已关闭");
             }
-            System.out.println("[mod4j] 设备存在但未连接，尝试刷新: " + deviceId);
-            existingDevice.refresh();
-            return existingDevice;
+            String deviceId = config.getDeviceId();
+            var created = new AtomicBoolean();
+            ModbusDevice device = connectedDevices.compute(deviceId, (id, existing) -> {
+                if (existing == null) {
+                    existing = switch (config.devType()) {
+                        case SERIAL -> new SerialModbusDevice();
+                        case TCP -> new TcpModbusDevice();
+                    };
+                    existing.connect(config);
+                    existing.setClient(this);
+                    created.set(true);
+                } else if (!existing.isConnected()) {
+                    existing.refresh();
+                }
+                if (persistent) {
+                    persistentDevices.add(id);
+                }
+                return existing;
+            });
+            if (created.get()) {
+                publishEvent(new DeviceConnectedEvent(device));
+            }
+            return device;
+        } finally {
+            lifecycleLock.readLock().unlock();
         }
-
-        // 2. 根据不同设备类型，创建设备实例并连接
-        ModbusDevice device;
-        if (config.devType() == ModDeviceType.SERIAL) {
-            device = new SerialModbusDevice();
-        } else if (config.devType() == ModDeviceType.TCP) {
-            device = new TcpModbusDevice();
-        } else {
-            throw new ModbusException("[mod4j] 不支持的设备类型");
-        }
-
-        device.connect(config);
-        device.setClient(this);
-
-        connectedDevices.put(device.getDeviceId(), device);
-        publishEvent(new DeviceConnectedEvent(device));
-        return device;
     }
 
     /**
@@ -203,8 +237,7 @@ public class ModbusClient {
         List<CompletableFuture<Void>> futures = configs.stream()
                                                        .map(config -> CompletableFuture.runAsync(() -> {
                                                            try {
-                                                               connectDevice(config);
-                                                               markAsPersistent(config.getDeviceId());
+                                                               connectDevice(config, true);
                                                            } catch (ModbusException e) {
                                                                System.err.println("[mod4j] 批量连接设备失败: " + config.getDeviceId() + ", " + e.getMessage());
                                                                success.set(false);
@@ -222,11 +255,28 @@ public class ModbusClient {
      * @throws ModbusException 如果断开过程中发生错误
      */
     public void disconnectDevice(String deviceId) throws ModbusException {
-        ModbusDevice device = connectedDevices.remove(deviceId);
-        persistentDevices.remove(deviceId);
-        if (device != null) {
-            device.disconnect();
-            publishEvent(new DeviceDisconnectedEvent(device));
+        var disconnected = new AtomicReference<ModbusDevice>();
+        var failure = new AtomicReference<ModbusException>();
+        connectedDevices.computeIfPresent(deviceId, (id, device) -> {
+            persistentDevices.remove(id);
+            try {
+                device.disconnect();
+                disconnected.set(device);
+            } catch (ModbusException e) {
+                failure.set(e);
+            }
+            return null;
+        });
+        if (failure.get() != null || disconnected.get() != null) {
+            synchronized (this) {
+                notifyAll();
+            }
+        }
+        if (failure.get() != null) {
+            throw failure.get();
+        }
+        if (disconnected.get() != null) {
+            publishEvent(new DeviceDisconnectedEvent(disconnected.get()));
         }
     }
 
@@ -254,10 +304,11 @@ public class ModbusClient {
      * @param deviceId 设备 ID
      */
     public void markAsPersistent(String deviceId) {
-        if (connectedDevices.containsKey(deviceId)) {
-            persistentDevices.add(deviceId);
-            System.out.println("[mod4j] 设备已标记为常连接: " + deviceId);
-        }
+        connectedDevices.computeIfPresent(deviceId, (id, device) -> {
+            persistentDevices.add(id);
+            System.out.println("[mod4j] 设备已标记为常连接: " + id);
+            return device;
+        });
     }
 
     /**
@@ -299,15 +350,21 @@ public class ModbusClient {
         if (listeners.isEmpty()) {
             return;
         }
-        CompletableFuture.runAsync(() -> {
-            for (ModbusEventListener listener : listeners) {
-                try {
-                    listener.onEvent(event);
-                } catch (Exception e) {
-                    System.err.printf("[mod4j] 事件 {%s} 处理异常: %s%n", event, e.getMessage());
+        try {
+            operationExecutor.execute(() -> {
+                for (ModbusEventListener listener : listeners) {
+                    try {
+                        listener.onEvent(event);
+                    } catch (Exception e) {
+                        System.err.printf("[mod4j] 事件 {%s} 处理异常: %s%n", event, e.getMessage());
+                    }
                 }
+            });
+        } catch (RejectedExecutionException e) {
+            if (!closed) {
+                throw e;
             }
-        }, operationExecutor);
+        }
     }
 
     /**
@@ -327,7 +384,8 @@ public class ModbusClient {
      * @return 如果设备已连接则返回 true，否则返回 false
      */
     public boolean isDeviceConnected(String deviceId) {
-        return connectedDevices.containsKey(deviceId);
+        ModbusDevice device = connectedDevices.get(deviceId);
+        return device != null && device.isConnected();
     }
 
     /**
@@ -408,6 +466,15 @@ public class ModbusClient {
      * 优雅停机
      */
     public void shutdown() {
+        lifecycleLock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        } finally {
+            lifecycleLock.writeLock().unlock();
+        }
         stopHeartbeat();
         batchDisconnectDevices(new ArrayList<>(connectedDevices.keySet()));
         operationExecutor.shutdown();

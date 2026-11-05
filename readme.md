@@ -1,99 +1,90 @@
-# Mod4J - Modbus SDK
+# Mod4J
 
-Mod4J 是一个简单易用的 Java Modbus SDK，支持 Modbus TCP 和 Modbus RTU (串口) 协议。它采用门面模式设计，为开发者提供统一的接口来操作不同类型的
-Modbus 设备。
+Mod4J 是面向工业设备采集和联调的 Java Modbus 客户端库。通过 `ModbusClient`，应用可以用同一套 API 连接串口设备、TCP 从站和透传 RTU 报文的网关。
 
-## 项目结构
+- **请求收发** · 支持按从站地址、功能码、起始地址和数量构造读请求，也支持发送完整的原始报文。两种方式都提供同步和 `CompletableFuture<byte[]>` 异步接口。
+- **设备管理** · 支持批量连接和断开、连接与断开事件，以及通过心跳触发连接恢复。
+- **开发联调** · 提供可配置读寄存器响应的 TCP 模拟器，以及基于输入输出流的 RTU 模拟器。
 
-```text
-mod4j
-├── src
-│   └── main
-│       └── java
-│           ├── device          # 设备模块，包含 TCP 和串口设备的具体实现
-│           │   ├── conf                    # 设备配置包
-│           │   ├── ModbusDevice.java       # 设备抽象接口
-│           │   ├── SerialModbusDevice.java # 串口设备实现
-│           │   └── TcpModbusDevice.java    # TCP 设备实现
-│           ├── event           # 事件定义
-│           │   ├── AbstractModbusEvent.java    # 抽象事件基类
-│           │   ├── DeviceConnectedEvent.java   # 设备连接事件
-│           │   ├── DeviceDisconnectedEvent.java # 设备断开事件
-│           │   └── ModbusEventListener.java # 设备事件监听器
-│           ├── enums           # 枚举定义
-│           │   └── DeviceType.java         # 设备类型（RTU, TCP）
-│           ├── exception       # 异常模块
-│           │   ├── ModbusException.java    # 自定义异常基类
-│           │   ├── ModbusIOException.java   # IO 异常
-│           │   └── ModbusTimeoutException.java # 超时异常
-│           ├── facade          # 门面模块
-│           │   └── ModbusClient.java       # 统一操作接口
-│           └── utils           # 工具类
-│               ├── ModbusProtocolUtils.java # 报文构建和校验工具
-│               ├── ModbusTcpSimulator.java  # TCP 模拟器
-│               └── ModbusRtuSimulator.java  # RTU 模拟器
-└── pom.xml                     # 项目依赖配置
+## 通信模式
+
+`DeviceConfig` 分别用 `ModDeviceType` 指定连接方式，用 `CommunicationType` 指定报文格式。
+
+| 模式 | `ModDeviceType` | `CommunicationType` | 设备配置 |
+| --- | --- | --- | --- |
+| Modbus TCP | `TCP` | `TCP` | `TcpDeviceConfig`，发送带 MBAP 头的报文 |
+| Modbus RTU over TCP | `TCP` | `RTU` | `TcpDeviceConfig`，在 TCP 连接上传输带 CRC 的 RTU 报文 |
+| Modbus RTU | `SERIAL` | `RTU` | `SerialDeviceConfig`，通过串口收发 RTU 报文 |
+
+## 安装
+
+需要 JDK 23 和 Maven 3。将源码构建并安装到本地 Maven 仓库。
+
+```sh
+git clone https://github.com/RylinWolf/mod4j.git
+cd mod4j
+mvn -DskipTests install
 ```
 
-## 核心特性
+在应用的 `pom.xml` 中添加依赖，将 `MOD4J_VERSION` 替换为所构建版本在本项目 [pom.xml](pom.xml) 中声明的版本号。串口通信依赖 jSerialComm，由 Maven 一并引入。
 
-- **设备配置抽象**: 引入 `DeviceConfig` 记录类，统一管理设备连接参数。
-- **常连接与自愈**: 支持将设备标记为“常连接”，在网络抖动或设备掉线时自动进行无限次重连尝试，确保关键连接的持久性。
-- **并发安全**: 核心通信逻辑采用同步锁机制，确保在多线程环境下对同一设备的指令收发是顺序执行的。
-- **可阻塞可异步响应**: 封装了复杂的 IO 操作，调用者可像调用普通函数一样同步获取从站响应，也可通过 Future 异步获取响应
-- **内置模拟器**: 提供 `ModbusTcpSimulator` 和 `ModbusRtuSimulator`，方便在无硬件环境下进行开发测试。
-- **协议支持**:
-    - 内置 CRC16 校验，支持标准 Modbus RTU。
-    - 支持标准 Modbus TCP 报文格式（含 MBAP 头）。
-    - 支持 Modbus RTU over TCP 模式（TCP 链路上发送 RTU 报文）。
-    - 自动处理 TCP 事务标识符。
+```xml
+<dependency>
+    <groupId>com.wolfhouse</groupId>
+    <artifactId>mod4j</artifactId>
+    <version>MOD4J_VERSION</version>
+</dependency>
+```
 
 ## 快速开始
 
-### 1. 引入依赖
-
-项目使用了 `jSerialComm` 处理串口通信，确保在 `pom.xml` 中已包含该依赖。
-
-### 2. 连接与管理设备
+将以下示例保存为 Maven 应用中的 `ReadHoldingRegister.java`。示例连接 `127.0.0.1:5502` 上的 Modbus TCP 从站，读取从站 1 的一个保持寄存器。请先启动监听该端口的从站或模拟器，或将地址、端口和寄存器参数改为实际设备的配置。
 
 ```java
+import com.wolfhouse.mod4j.device.ModbusDevice;
+import com.wolfhouse.mod4j.device.conf.DeviceConfig;
 import com.wolfhouse.mod4j.device.conf.TcpDeviceConfig;
+import com.wolfhouse.mod4j.enums.ModDeviceType;
+import com.wolfhouse.mod4j.enums.CommunicationType;
+import com.wolfhouse.mod4j.facade.ModbusClient;
 
-void fun() {
-    ModbusClient client = new ModbusClient();
-    try {
-        // 定义配置
-        DeviceConfig config = new DeviceConfig(DeviceType.TCP, 5000, new TcpDeviceConfig("127.0.0.1", 5502));
-        // 连接单个设备
-        ModbusDevice tcpDevice = client.connectDevice(config);
-        // 批量连接设备
-        client.batchConnectDevices(Arrays.asList(config1, config2));
-        // 标记为常连接设备（自动重连且不自动移除）
-        client.markAsPersistent(tcpDevice.getDeviceId());
-        // 发送指令
-        byte[] response = tcpDevice.sendRequest(1, 3, 0, 10);
-    } catch (ModbusException e) {
-        System.err.println("[mod4j] 错误: " + e.getMessage());
+import java.util.HexFormat;
+
+public class ReadHoldingRegister {
+    public static void main(String[] args) {
+        var client = new ModbusClient();
+        try {
+            var config = new DeviceConfig(
+                    ModDeviceType.TCP,
+                    CommunicationType.TCP,
+                    2_000,
+                    new TcpDeviceConfig().setIp("127.0.0.1").setPort(5502)
+            );
+
+            ModbusDevice device = client.connectDevice(config);
+            // 从站 1，功能码 0x03，报文中的起始地址 0，读取 1 个寄存器
+            byte[] response = device.sendRequest(1, 0x03, 0, 1);
+            System.out.println(HexFormat.ofDelimiter(" ").formatHex(response));
+        } finally {
+            client.shutdown();
+        }
     }
 }
 ```
 
-### 3. 断开连接
+`DeviceConfig` 的超时参数以毫秒计，用于 TCP 建连和读取，以及串口读取。寄存器地址使用设备报文中的地址偏移，请根据设备手册换算。SDK 校验 TCP 响应头或 RTU CRC，响应仍以原始字节数组返回，应用负责解码设备数据和处理 Modbus 异常响应。RTU 厂商扩展若没有 SDK 可识别的帧长，需要配置正数读取超时作为报文边界。
 
-```java
-void fun() {
-    try {
-        client.disconnectDevice("TCP:192.168.1.10:5502");
-    } catch (ModbusException e) {
-        e.printStackTrace();
-    }
-}
-```
+对于需要携带额外数据的写请求，例如 `0x0F` 或 `0x10`，应自行组帧后调用 `sendRawRequest`。TCP 连接异常时，SDK 只会对格式明确的标准读请求重试一次。写请求只发送一次，若收不到响应，执行结果由调用方核实。
 
-## 开发环境
+## 设备管理
 
-- Java 23
-- Maven 3.x
-- 依赖库
-    - jSerialComm
-    - lombok
+- **改用串口** · 将连接方式和报文格式改为 `ModDeviceType.SERIAL` 与 `CommunicationType.RTU`，并传入 `SerialDeviceConfig.standard9600Serial("COM3")`。替换为实际串口名，该工厂方法使用 9600 波特、8 数据位、无校验、1 停止位。
+- **异步请求** · `device.sendRequestAsync(1, 0x03, 0, 1)` 返回 `CompletableFuture<byte[]>`。同一设备上的收发操作串行执行。
+- **心跳与恢复** · TCP 设备可通过 `TcpDeviceConfig` 设置并启用 `HeartbeatStrategy`，随后调用 `client.startHeartbeat(5)` 每 5 秒调度检测。可用 `client.markAsPersistent(device.getDeviceId())` 将已连接设备标记为常连接，供心跳触发的恢复流程持续重试。
+- **断开与事件** · 通过 `client.addEventListener(...)` 订阅异步设备事件。用 `client.disconnectDevice(device.getDeviceId())` 断开单个设备，用 `client.shutdown()` 停止客户端并释放设备连接和执行器。
+
+## 模拟器与测试
+
+- [`ModbusTcpSimulator`](src/main/java/com/wolfhouse/mod4j/utils/ModbusTcpSimulator.java) 可监听 TCP 端口，配置从站地址、功能码、寄存器数据、响应延迟和响应成功率。默认使用 Modbus TCP，构造时传入 `false` 可切换为 RTU over TCP。
+- [`ModbusRtuSimulator`](src/main/java/com/wolfhouse/mod4j/utils/ModbusRtuSimulator.java) 接收输入输出流，可配合 Java 管道流模拟 RTU 收发。
+- `mvn test` 运行回归测试。测试使用本机回环端口和内存流，无需连接外部设备。
